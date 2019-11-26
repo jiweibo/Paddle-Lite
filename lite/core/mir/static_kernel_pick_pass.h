@@ -80,7 +80,7 @@ class StaticKernelPickPass : public mir::StmtPass {
         case lite::VarDescAPI::Type::INT64:
           return PRECISION(kInt64);
         default:
-          LOG(FATAL) << "not supported type";
+          // LOG(FATAL) << "not supported type: " << static_cast<int>(type);
           return PRECISION(kUnk);
       }
     };
