@@ -84,6 +84,7 @@ if (NOT LITE_ON_TINY_PUBLISH)
                         SRCS cxx_api.cc
                         DEPS ${cxx_api_deps} ${ops} ${host_kernels} program
                         X86_DEPS ${x86_kernels}
+                        CUDA_DEPS ${cuda_kernels}
                         ARM_DEPS ${arm_kernels}
                         CV_DEPS paddle_cv_arm
                         NPU_DEPS ${npu_kernels} ${npu_bridges} npu_pass
@@ -120,6 +121,7 @@ if(WITH_TESTING)
        DEPS cxx_api mir_passes lite_api_test_helper
        ${ops} ${host_kernels}
        X86_DEPS ${x86_kernels}
+       CUDA_DEPS ${cuda_kernels}
        ARM_DEPS ${arm_kernels}
        NPU_DEPS ${npu_kernels}
        XPU_DEPS ${xpu_kernels}
@@ -305,6 +307,7 @@ if(NOT IOS)
         FPGA_DEPS ${fpga_kernels}
         X86_DEPS ${x86_kernels}
         CUDA_DEPS ${cuda_kernels})
+
 endif()
 
 #lite_cc_binary(cxx_api_bin SRCS cxx_api_bin.cc
