@@ -135,6 +135,8 @@ KernelRegistry::KernelRegistry()
   // Currently, just register 2 kernel targets.
   INIT_FOR(kCUDA, kFloat, kNCHW);
   INIT_FOR(kCUDA, kFloat, kNHWC);
+  INIT_FOR(kCUDA, kFP16, kNCHW);
+  INIT_FOR(kCUDA, kFP16, kNHWC);
   INIT_FOR(kCUDA, kInt8, kNCHW);
   INIT_FOR(kCUDA, kAny, kNCHW);
   INIT_FOR(kCUDA, kAny, kAny);

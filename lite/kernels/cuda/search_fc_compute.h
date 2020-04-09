@@ -24,16 +24,8 @@ namespace lite {
 namespace kernels {
 namespace cuda {
 
-const int CUDA_NUM_THREADS = 512;
-inline int CUDA_GET_BLOCKS(const int N) {
-  return (N + CUDA_NUM_THREADS - 1) / CUDA_NUM_THREADS;
-}
-inline int CUDA_GET_BLOCKS(const int N, const int base) {
-  return (N + base - 1) / base;
-}
-
-template <typename T>
-class SearchFcCompute : public KernelLite<TARGET(kCUDA), PRECISION(kFloat)> {
+template <typename T, PrecisionType PType>
+class SearchFcCompute : public KernelLite<TARGET(kCUDA), PType> {
  public:
   using param_t = operators::SearchFcParam;
   void PrepareForRun() override;
@@ -41,7 +33,7 @@ class SearchFcCompute : public KernelLite<TARGET(kCUDA), PRECISION(kFloat)> {
   virtual ~SearchFcCompute() = default;
 
  private:
-  std::unique_ptr<lite::cuda::math::Gemm<float, float>> gemm_impl_{nullptr};
+  std::unique_ptr<lite::cuda::math::Gemm<T, T>> gemm_impl_{nullptr};
   int _M;
   int _K;
   int _N;
