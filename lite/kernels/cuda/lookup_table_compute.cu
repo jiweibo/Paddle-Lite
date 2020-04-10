@@ -76,30 +76,31 @@ __global__ void LookupTableKernel<__half>(__half *output,
     __half *out = output + idy * D;
     const __half *tab = table + id * D;
 #if __CUDA_ARCH__ >= 530
-    // if D is not a multiple of 2, cuda will cause misaligned address.
+    // if D is not an integer multiple of 2, cuda will triger the problem of
+    // misaligned address problem.
     if (D % 2) {
       for (int i = idx; i < D; i += blockDim.x) {
-        out[i] = tab[i];
+        if (padding_flag) {
+          if (id == padding_idx)
+            out[i] = __float2half(0.f);
+          else
+            out[i] = tab[i];
+        } else {
+          out[i] = tab[i];
+        }
       }
     } else {
       int D2 = D / 2;
       __half2 *out2 = reinterpret_cast<__half2 *>(out);
       const __half2 *table2 = reinterpret_cast<const __half2 *>(tab);
       for (int i = idx; i < D2; i += blockDim.x) {
-        //       if (padding_flag) {
-        //         if (id == padding_idx) {
-        //           out2[i] = __float2half2_rn(0.f);
-        //           if (idx == 0 && D%2){
-        //             out[D-1] = __float2half(0.f);
-        //           }
-        //         } else {
-        //           out2[i] = table2[i];
-        //           if (idx == 0 && D%2) {
-        //             out[D-1] = tab[D-1];
-        //           }
-        //         }
-        //       } else {
-        out2[i] = table2[i];
+        if (padding_flag) {
+          if (id == padding_idx) {
+            out2[i] = __float2half2_rn(0.f);
+          } else {
+            out2[i] = table2[i];
+          }
+        }
       }
       if (idx == 0 && D % 2) {
         out[D - 1] = tab[D - 1];

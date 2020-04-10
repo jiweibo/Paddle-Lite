@@ -32,10 +32,10 @@ class LookUpTableTest : public ::testing::Test {
  protected:
   LookUpTableTest()
       : vocab_size(512),
-        emb_size(15),
-        ids_h(3),
-        ids_w(1),
-        padding_idx(-1),
+        emb_size(256),
+        ids_h(40),
+        ids_w(20),
+        padding_idx(10),
         ids_shape({ids_h, ids_w}),
         w_shape({vocab_size, emb_size}),
         out_shape({ids_h, ids_w, emb_size}) {
@@ -200,9 +200,7 @@ TEST_F(LookUpTableTest, TestFP16) {
   for (int i = 0; i < Out_cpu.numel(); ++i) {
     float res = static_cast<float>(lite::cuda::float16(out_cpu_data[i]));
     float ref = Out_ref.data<float>()[i];
-    LOG(INFO) << i << ":, ref is " << ref << ", while res is " << res
-              << ", diff is " << ref - res;
-    EXPECT_NEAR(fabs(res - ref) / (ref + 1e-5), 0., 1e-3);
+    EXPECT_NEAR(fabs(res - ref) / (ref + 1e-5), 0., 5e-3);
   }
 }
 
