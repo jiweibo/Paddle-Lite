@@ -35,7 +35,7 @@ __global__ void add_bias<__half>(int n,
 #if __CUDA_ARCH__ >= 530
   int n2 = n / 2;
   if (index < n2) {
-    __half2* dout2 = static_cast<__half2*>(dout);
+    __half2* dout2 = reinterpret_cast<__half2*>(dout);
     __half2 bias_data;
     bias_data.x = bias[(2 * index) % output_size];
     bias_data.y = bias[(2 * index + 1) % output_size];
@@ -114,10 +114,10 @@ void SearchFcCompute<__half, PRECISION(kFP16)>::Run() {
 }  // namespace lite
 }  // namespace paddle
 
-typedef paddle::lite::kernels::cuda::SearchFcCompute<float, PRECISION(kFloat)>
-    FCFp32;
-typedef paddle::lite::kernels::cuda::SearchFcCompute<__half, PRECISION(kFP16)>
-    FCFp16;
+using FCFp32 =
+    paddle::lite::kernels::cuda::SearchFcCompute<float, PRECISION(kFloat)>;
+using FCFp16 =
+    paddle::lite::kernels::cuda::SearchFcCompute<__half, PRECISION(kFP16)>;
 
 REGISTER_LITE_KERNEL(search_fc, kCUDA, kFloat, kNCHW, FCFp32, def)
     .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA))})

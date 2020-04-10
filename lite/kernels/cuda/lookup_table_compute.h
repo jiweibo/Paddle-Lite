@@ -21,8 +21,9 @@ namespace lite {
 namespace kernels {
 namespace cuda {
 
+template <typename T, PrecisionType PType>
 class LookupTableCompute
-    : public KernelLite<TARGET(kCUDA), PRECISION(kFloat), DATALAYOUT(kNCHW)> {
+    : public KernelLite<TARGET(kCUDA), PType, DATALAYOUT(kNCHW)> {
  public:
   using param_t = operators::LookupTableParam;
 
