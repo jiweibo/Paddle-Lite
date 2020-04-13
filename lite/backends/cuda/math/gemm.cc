@@ -31,6 +31,7 @@ bool Gemm<PTypeIn, PTypeOut>::init(const bool trans_a,
   if (cu_handle_ == nullptr) {
     this->exe_stream_ = ctx->exec_stream();
     CUBLAS_CALL(cublasCreate(&cu_handle_));
+    CUBLAS_CALL(cublasSetMathMode(cu_handle_, CUBLAS_TENSOR_OP_MATH));
     CUBLAS_CALL(cublasSetStream(cu_handle_, this->exe_stream_));
   }
   lda_ = (!trans_a) ? k : m;

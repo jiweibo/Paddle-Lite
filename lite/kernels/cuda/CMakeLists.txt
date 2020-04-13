@@ -34,7 +34,7 @@ add_kernel(search_grnn_compute_cuda CUDA extra SRCS search_grnn_compute.cu DEPS 
 add_kernel(sequence_reverse_compute_cuda CUDA basic SRCS sequence_reverse_compute.cu DEPS ${lite_kernel_deps})
 add_kernel(sequence_concat_compute_cuda CUDA basic SRCS sequence_concat_compute.cu DEPS ${lite_kernel_deps})
 add_kernel(sequence_arithmetic_compute_cuda CUDA basic SRCS sequence_arithmetic_compute.cu DEPS ${lite_kernel_deps})
-add_kernel(lookup_table_compute_cuda CUDA extra SRCS lookup_table_compute.cu DEPS ${lite_kernel_deps})
+add_kernel(lookup_table_compute_cuda CUDA extra SRCS lookup_table_compute.cu DEPS ${lite_kernel_deps} ${math_cuda})
 add_kernel(attention_padding_mask_compute_cuda CUDA extra SRCS attention_padding_mask_compute.cu DEPS ${lite_kernel_deps})
 add_kernel(search_fc_compute_cuda CUDA basic SRCS search_fc_compute.cu DEPS ${lite_kernel_deps} ${math_cuda})
 add_kernel(sequence_topk_avg_pooling_compute_cuda CUDA basic SRCS sequence_topk_avg_pooling_compute.cu DEPS ${lite_kernel_deps})

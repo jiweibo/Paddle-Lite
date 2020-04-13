@@ -12,6 +12,7 @@ limitations under the License. */
 #pragma once
 
 #include <vector>
+#include "lite/backends/cuda/math/type_trans.h"
 #include "lite/core/op_registry.h"
 #include "lite/kernels/cuda/lookup_table_compute.h"
 
@@ -61,20 +62,20 @@ __global__ void LookupTableKernel<float>(float *output,
 }
 
 template <>
-__global__ void LookupTableKernel<__half>(__half *output,
-                                          const __half *table,
-                                          const int64_t *ids,
-                                          const int64_t N,
-                                          const int64_t K,
-                                          const int64_t D,
-                                          const bool padding_flag,
-                                          const int64_t padding_idx) {
+__global__ void LookupTableKernel<half>(half *output,
+                                        const half *table,
+                                        const int64_t *ids,
+                                        const int64_t N,
+                                        const int64_t K,
+                                        const int64_t D,
+                                        const bool padding_flag,
+                                        const int64_t padding_idx) {
   int idx = threadIdx.x;
   int idy = blockIdx.x + threadIdx.y * gridDim.x;
   while (idy < K) {
     int64_t id = ids[idy];
-    __half *out = output + idy * D;
-    const __half *tab = table + id * D;
+    half *out = output + idy * D;
+    const half *tab = table + id * D;
 #if __CUDA_ARCH__ >= 530
     // if D is not an integer multiple of 2, cuda will triger the problem of
     // misaligned address problem.
@@ -91,8 +92,8 @@ __global__ void LookupTableKernel<__half>(__half *output,
       }
     } else {
       int D2 = D / 2;
-      __half2 *out2 = reinterpret_cast<__half2 *>(out);
-      const __half2 *table2 = reinterpret_cast<const __half2 *>(tab);
+      half2 *out2 = reinterpret_cast<half2 *>(out);
+      const half2 *table2 = reinterpret_cast<const half2 *>(tab);
       for (int i = idx; i < D2; i += blockDim.x) {
         if (padding_flag) {
           if (id == padding_idx) {
@@ -122,28 +123,72 @@ __global__ void LookupTableKernel<__half>(__half *output,
   }
 }
 
-template <typename T, PrecisionType PType>
-void LookupTableCompute<T, PType>::Run() {
+template <>
+void LookupTableCompute<float, PRECISION(kFloat)>::PrepareForRun() {
+  auto &param = this->Param<param_t>();
+  w_tensor_ = param.W;
+}
+
+template <>
+void LookupTableCompute<float, PRECISION(kFloat)>::Run() {
   auto &param = this->template Param<param_t>();
   auto &ctx = this->ctx_->template As<CUDAContext>();
   auto stream = ctx.exec_stream();
-  const Tensor *w_t = param.W;
   const Tensor *ids_t = param.Ids;
   Tensor *out_t = param.Out;
   int64_t padding_idx = param.padding_idx;
 
-  size_t N = w_t->dims()[0];
-  size_t D = w_t->dims()[1];
+  size_t N = w_tensor_->dims()[0];
+  size_t D = w_tensor_->dims()[1];
   size_t K = ids_t->numel();
 
-  auto *w = w_t->data<T>();
+  auto *w = w_tensor_->data<float>();
   auto *ids = ids_t->data<int64_t>();
-  auto *out = out_t->mutable_data<T>(TARGET(kCUDA));
+  auto *out = out_t->mutable_data<float>(TARGET(kCUDA));
 
   dim3 threads(128, 8);
   dim3 grids(8, 1);
   bool padding_flag = !(padding_idx == -1);
-  LookupTableKernel<T><<<grids, threads, 0, stream>>>(
+  LookupTableKernel<float><<<grids, threads, 0, stream>>>(
+      out, w, ids, N, K, D, padding_flag, padding_idx);
+
+  cudaError_t error = cudaGetLastError();
+  if (error != cudaSuccess) LOG(INFO) << cudaGetErrorString(error);
+}
+
+template <>
+void LookupTableCompute<half, PRECISION(kFP16)>::PrepareForRun() {
+  auto &param = this->Param<param_t>();
+  w_tensor_ = param.W;
+  w_half_tensor_.Resize(w_tensor_->dims());
+  lite::cuda::math::fp32_to_fp16(
+      w_tensor_->numel(),
+      w_tensor_->data<float>(),
+      w_half_tensor_.mutable_data<half>(TARGET(kCUDA)));
+  w_half_tensor_.set_lod(w_tensor_->lod());
+}
+
+template <>
+void LookupTableCompute<half, PRECISION(kFP16)>::Run() {
+  auto &param = this->template Param<param_t>();
+  auto &ctx = this->ctx_->template As<CUDAContext>();
+  auto stream = ctx.exec_stream();
+  const Tensor *ids_t = param.Ids;
+  Tensor *out_t = param.Out;
+  int64_t padding_idx = param.padding_idx;
+
+  size_t N = w_half_tensor_.dims()[0];
+  size_t D = w_half_tensor_.dims()[1];
+  size_t K = ids_t->numel();
+
+  auto *w = w_half_tensor_.data<half>();
+  auto *ids = ids_t->data<int64_t>();
+  auto *out = out_t->mutable_data<half>(TARGET(kCUDA));
+
+  dim3 threads(128, 8);
+  dim3 grids(8, 1);
+  bool padding_flag = !(padding_idx == -1);
+  LookupTableKernel<half><<<grids, threads, 0, stream>>>(
       out, w, ids, N, K, D, padding_flag, padding_idx);
 
   cudaError_t error = cudaGetLastError();
@@ -158,7 +203,7 @@ void LookupTableCompute<T, PType>::Run() {
 using LKTFp32 =
     paddle::lite::kernels::cuda::LookupTableCompute<float, PRECISION(kFloat)>;
 using LKTFp16 =
-    paddle::lite::kernels::cuda::LookupTableCompute<__half, PRECISION(kFP16)>;
+    paddle::lite::kernels::cuda::LookupTableCompute<half, PRECISION(kFP16)>;
 
 REGISTER_LITE_KERNEL(lookup_table, kCUDA, kFloat, kNCHW, LKTFp32, def)
     .BindInput("W", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFloat))})

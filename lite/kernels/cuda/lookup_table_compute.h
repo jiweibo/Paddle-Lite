@@ -28,7 +28,12 @@ class LookupTableCompute
   using param_t = operators::LookupTableParam;
 
   void Run() override;
+  void PrepareForRun() override;
   virtual ~LookupTableCompute() = default;
+
+ private:
+  const lite::Tensor* w_tensor_;
+  lite::Tensor w_half_tensor_;
 };
 
 }  // namespace cuda

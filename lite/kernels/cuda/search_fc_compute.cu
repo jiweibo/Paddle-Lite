@@ -10,8 +10,10 @@ See the License for the specific language governing permissions and
 limitations under the License. */
 
 #pragma once
+#include "lite/backends/cuda/math/type_trans.h"
 #include "lite/core/op_registry.h"
 #include "lite/kernels/cuda/search_fc_compute.h"
+
 namespace paddle {
 namespace lite {
 namespace kernels {
@@ -27,16 +29,16 @@ __global__ void add_bias(int n, int output_size, const T* bias, T* dout) {
 }
 
 template <>
-__global__ void add_bias<__half>(int n,
-                                 int output_size,
-                                 const __half* bias,
-                                 __half* dout) {
+__global__ void add_bias<half>(int n,
+                               int output_size,
+                               const half* bias,
+                               half* dout) {
   int index = blockIdx.x * blockDim.x + threadIdx.x;
 #if __CUDA_ARCH__ >= 530
   int n2 = n / 2;
   if (index < n2) {
-    __half2* dout2 = reinterpret_cast<__half2*>(dout);
-    __half2 bias_data;
+    half2* dout2 = reinterpret_cast<half2*>(dout);
+    half2 bias_data;
     bias_data.x = bias[(2 * index) % output_size];
     bias_data.y = bias[(2 * index + 1) % output_size];
     dout2[index] = __hadd2(dout2[index], bias_data);
@@ -52,9 +54,12 @@ __global__ void add_bias<__half>(int n,
 #endif
 }
 
-template <typename T, PrecisionType PType>
-void SearchFcCompute<T, PType>::PrepareForRun() {
-  gemm_impl_.reset(new lite::cuda::math::Gemm<T, T>);
+template <>
+void SearchFcCompute<float, PRECISION(kFloat)>::PrepareForRun() {
+  gemm_impl_.reset(new lite::cuda::math::Gemm<float, float>);
+  auto& param = this->Param<param_t>();
+  w_tensor_ = param.W;
+  b_tensor_ = param.b;
 }
 
 template <>
@@ -70,10 +75,8 @@ void SearchFcCompute<float, PRECISION(kFloat)>::Run() {
   const float* din = x_tensor->data<float>();
   Tensor* out_tensor = param.Out;
   float* dout = out_tensor->mutable_data<float>(TARGET(kCUDA));
-  const Tensor* w_tensor = param.W;
-  const float* weight = w_tensor->data<float>();
-  const Tensor* b_tensor = param.b;
-  const float* bias = b_tensor->data<float>();
+  const float* weight = w_tensor_->data<float>();
+  const float* bias = b_tensor_->data<float>();
   CHECK(gemm_impl_->init(false, true, _M, _N, _K, &ctx));
   gemm_impl_->run(1.0f, 0.0f, din, weight, dout, &ctx);
 
@@ -83,7 +86,27 @@ void SearchFcCompute<float, PRECISION(kFloat)>::Run() {
 }
 
 template <>
-void SearchFcCompute<__half, PRECISION(kFP16)>::Run() {
+void SearchFcCompute<half, PRECISION(kFP16)>::PrepareForRun() {
+  gemm_impl_.reset(new lite::cuda::math::Gemm<half, half>);
+  auto& param = this->Param<param_t>();
+  w_tensor_ = param.W;
+  b_tensor_ = param.b;
+  w_half_tensor_.Resize(w_tensor_->dims());
+  lite::cuda::math::fp32_to_fp16(
+      w_tensor_->numel(),
+      w_tensor_->data<float>(),
+      w_half_tensor_.mutable_data<half>(TARGET(kCUDA)));
+  w_half_tensor_.set_lod(w_tensor_->lod());
+  b_half_tensor_.Resize(b_tensor_->dims());
+  lite::cuda::math::fp32_to_fp16(
+      b_tensor_->numel(),
+      b_tensor_->data<float>(),
+      b_half_tensor_.mutable_data<half>(TARGET(kCUDA)));
+  b_half_tensor_.set_lod(b_tensor_->lod());
+}
+
+template <>
+void SearchFcCompute<half, PRECISION(kFP16)>::Run() {
   auto& param = this->Param<param_t>();
   auto& ctx = this->ctx_->template As<CUDAContext>();
   auto stream = ctx.exec_stream();
@@ -92,20 +115,17 @@ void SearchFcCompute<__half, PRECISION(kFP16)>::Run() {
   _M = x_tensor->dims().count(0, 1);
   _K = x_tensor->dims().count(1, x_tensor->numel());
   _N = param.out_size;
-  const __half* din = x_tensor->data<__half>();
+  const half* din = x_tensor->data<half>();
   Tensor* out_tensor = param.Out;
-  __half* dout = out_tensor->mutable_data<__half>(TARGET(kCUDA));
-  const Tensor* w_tensor = param.W;
-  const __half* weight = w_tensor->data<__half>();
-  const Tensor* b_tensor = param.b;
-  const __half* bias = b_tensor->data<__half>();
+  half* dout = out_tensor->mutable_data<half>(TARGET(kCUDA));
+  const __half* weight = w_half_tensor_.data<__half>();
+  const __half* bias = b_half_tensor_.data<__half>();
   CHECK(gemm_impl_->init(false, true, _M, _N, _K, &ctx));
   gemm_impl_->run(
       __float2half(1.0f), __float2half(0.0f), din, weight, dout, &ctx);
 
   int total_size = _M * _N;
-  add_bias<
-      __half><<<CUDA_GET_BLOCKS(total_size), CUDA_NUM_THREADS, 0, stream>>>(
+  add_bias<half><<<CUDA_GET_BLOCKS(total_size), CUDA_NUM_THREADS, 0, stream>>>(
       total_size, _N, bias, dout);
 }
 
@@ -117,7 +137,7 @@ void SearchFcCompute<__half, PRECISION(kFP16)>::Run() {
 using FCFp32 =
     paddle::lite::kernels::cuda::SearchFcCompute<float, PRECISION(kFloat)>;
 using FCFp16 =
-    paddle::lite::kernels::cuda::SearchFcCompute<__half, PRECISION(kFP16)>;
+    paddle::lite::kernels::cuda::SearchFcCompute<half, PRECISION(kFP16)>;
 
 REGISTER_LITE_KERNEL(search_fc, kCUDA, kFloat, kNCHW, FCFp32, def)
     .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA))})

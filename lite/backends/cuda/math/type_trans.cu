@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <gflags/gflags.h>
 #include "lite/backends/cuda/math/type_trans.h"
 #include "lite/backends/cuda/math/utils.h"
 
@@ -95,6 +96,31 @@ void fp32_to_int8_nhwc(int num,
         H,
         W);
   }
+}
+
+__global__ void Fp32ToFp16Kernel(const int num,
+                                 const float* input,
+                                 half* output) {
+  int index = blockIdx.x * blockDim.x + threadIdx.x;
+  if (index < num) {
+    output[index] = __float2half(input[index]);
+  }
+}
+
+void fp32_to_fp16(int num, const float* din, half* dout, cudaStream_t stream) {
+  int threads = 1024;
+  int blocks = (num + threads - 1) / threads;
+  Fp32ToFp16Kernel<<<blocks, threads, 0, stream>>>(num, din, dout);
+  cudaError_t error = cudaGetLastError();
+  CHECK(error == cudaSuccess) << cudaGetErrorString(error);
+}
+
+void fp32_to_fp16(int num, const float* din, half* dout) {
+  int threads = 1024;
+  int blocks = (num + threads - 1) / threads;
+  Fp32ToFp16Kernel<<<blocks, threads>>>(num, din, dout);
+  cudaError_t error = cudaGetLastError();
+  CHECK(error == cudaSuccess) << cudaGetErrorString(error);
 }
 
 }  // namespace math
