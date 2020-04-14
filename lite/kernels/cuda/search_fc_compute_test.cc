@@ -49,13 +49,13 @@ class SearchFCTest : public ::testing::Test {
     auto b_ref_data = b_ref.mutable_data<float>();
 
     // prepare input
-    for (int64_t i = 0; i < X_ref.dims().production(); i++) {
+    for (int64_t i = 0; i < X_ref.numel(); i++) {
       x_ref_data[i] = static_cast<float>(i % 10 * 0.2);
     }
-    for (int64_t i = 0; i < W_ref.dims().production(); i++) {
+    for (int64_t i = 0; i < W_ref.numel(); i++) {
       w_ref_data[i] = static_cast<float>(i % 10 * 0.2);
     }
-    for (int64_t i = 0; i < b_ref.dims().production(); i++) {
+    for (int64_t i = 0; i < b_ref.numel(); i++) {
       b_ref_data[i] = static_cast<float>(i % 10 * 0.2);
     }
 
@@ -88,7 +88,7 @@ class SearchFCTest : public ::testing::Test {
   void half_data_init() {
     X_half.Resize(lite::DDim(x_shape));
     auto x_half_data = X_half.mutable_data<__half>();
-    for (int64_t i = 0; i < X_half.dims().production(); i++) {
+    for (int64_t i = 0; i < X_half.numel(); i++) {
       x_half_data[i] = half(lite::cuda::float16(X_ref.data<float>()[i]));
     }
     X_gpu.Assign<__half, lite::DDim, TARGET(kCUDA)>(x_half_data, X_gpu.dims());

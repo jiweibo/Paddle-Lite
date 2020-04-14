@@ -12,6 +12,7 @@ limitations under the License. */
 #pragma once
 #include <algorithm>
 #include <vector>
+#include "lite/backends/cuda/math/type_trans.h"
 #include "lite/core/op_registry.h"
 #include "lite/kernels/cuda/match_matrix_tensor_compute.h"
 
@@ -22,12 +23,20 @@ namespace cuda {
 using Tensor = lite::Tensor;
 
 template <typename dtype>
-void gpu_transpose(
-    cublasHandle_t handle, const dtype* src, int M, int N, dtype* dst);
+void gpu_transpose(cublasHandle_t handle,
+                   const dtype* src,
+                   int M,
+                   int N,
+                   dtype* dst,
+                   cudaStream_t stream);
 
 template <>
-void gpu_transpose<float>(
-    cublasHandle_t handle, const float* src, int M, int N, float* dst) {
+void gpu_transpose<float>(cublasHandle_t handle,
+                          const float* src,
+                          int M,
+                          int N,
+                          float* dst,
+                          cudaStream_t stream) {
   float alpha = 1.0;
   float beta = 0.0;
   CUBLAS_CHECK(cublasSgeam(handle,
@@ -43,6 +52,27 @@ void gpu_transpose<float>(
                            M,
                            dst,
                            M));
+}
+
+__global__ void gpu_trans_half_2d(const half* src, half* dst, int M, int N) {
+  int index = blockIdx.x * blockDim.x + threadIdx.x;
+  int m = index / N;
+  int n = index % N;
+  if (index < M * N) {
+    dst[n * M + m] = src[index];
+  }
+}
+
+template <>
+void gpu_transpose<half>(cublasHandle_t handle,
+                         const half* src,
+                         int M,
+                         int N,
+                         half* dst,
+                         cudaStream_t stream) {
+  const int num = M * N;
+  gpu_trans_half_2d<<<CUDA_GET_BLOCKS(num), CUDA_NUM_THREADS, 0, stream>>>(
+      src, dst, M, N);
 }
 
 template <typename dtype>
@@ -69,18 +99,35 @@ __global__ void padding_out(const dtype* src,
   }
 }
 
-void MatchMatrixTensorCompute::PrepareForRun() {
+template <>
+void MatchMatrixTensorCompute<float, PRECISION(kFloat)>::PrepareForRun() {
   gemm_impl_.reset(new lite::cuda::math::Gemm<float, float>);
+  auto& param = this->Param<param_t>();
+  w_tensor_ = param.w;
 }
 
-void MatchMatrixTensorCompute::Run() {
-  CHECK(ctx_) << "running context should be set first";
+template <>
+void MatchMatrixTensorCompute<half, PRECISION(kFP16)>::PrepareForRun() {
+  gemm_impl_.reset(new lite::cuda::math::Gemm<half, half>);
   auto& param = this->Param<param_t>();
+  w_half_tensor_.Resize(param.w->dims());
+  lite::cuda::math::fp32_to_fp16(
+      param.w->numel(),
+      param.w->data<float>(),
+      w_half_tensor_.mutable_data<half>(TARGET(kCUDA)));
+  w_half_tensor_.set_lod(param.w->lod());
+  w_tensor_ = &w_half_tensor_;
+}
+
+template <typename T, PrecisionType PType>
+void MatchMatrixTensorCompute<T, PType>::Run() {
+  CHECK(this->ctx_) << "running context should be set first";
+  auto& param = this->template Param<param_t>();
   auto& context = this->ctx_->template As<CUDAContext>();
   auto stream = context.exec_stream();
 
   auto* x = param.x;
-  auto* w = param.w;
+  auto* w = w_tensor_;
   auto* y = param.y;
   auto* out = param.out;
   auto* tmp = param.tmp;
@@ -121,41 +168,40 @@ void MatchMatrixTensorCompute::Run() {
                                  stream);
 
   int len_r = offset_r[offset_r.size() - 1];
-  const float* input_l = x->data<float>();
-  const float* input_r = y->data<float>();
-  const float* weight_data = w->data<float>();
-  float* input_l_transform =
-      _input_l_transform.mutable_data<float>(TARGET(kCUDA));
-  float* input_l_transform_reorganize =
-      _input_l_transform_reorganize.mutable_data<float>(TARGET(kCUDA));
-  float* output_tmp = _output_tmp.mutable_data<float>(TARGET(kCUDA));
-  float* out_data = out->mutable_data<float>(TARGET(kCUDA));
+  const auto* input_l = x->template data<T>();
+  const auto* input_r = y->template data<T>();
+  const auto* weight_data = w->template data<T>();
+  auto* input_l_transform = _input_l_transform.mutable_data<T>(TARGET(kCUDA));
+  auto* input_l_transform_reorganize =
+      _input_l_transform_reorganize.mutable_data<T>(TARGET(kCUDA));
+  auto* output_tmp = _output_tmp.mutable_data<T>(TARGET(kCUDA));
+  auto* out_data = out->template mutable_data<T>(TARGET(kCUDA));
 
   gemm_impl_->init(true, true, dim_t * dim_in, len_l, dim_in, &context);
   gemm_impl_->run(
       1.0f, 0.0f, weight_data, input_l, input_l_transform, &context);
   for (int i = 0; i < dim_t; ++i) {
     int offset = i * dim_in * len_l;
-    gpu_transpose(gemm_impl_->get_handle(),
-                  input_l_transform + offset,
-                  dim_in,
-                  len_l,
-                  input_l_transform_reorganize + offset);
+    gpu_transpose<T>(gemm_impl_->get_handle(),
+                     input_l_transform + offset,
+                     dim_in,
+                     len_l,
+                     input_l_transform_reorganize + offset,
+                     stream);
   }
   gemm_impl_->init(false, true, len_r, dim_t * len_l, dim_in, &context);
   gemm_impl_->run(
       1.0f, 0.0f, input_r, input_l_transform_reorganize, output_tmp, &context);
   int seq_num = offset_r.size() - 1;
   int count = seq_num * max_len_r * dim_t * len_l;
-  const int blocks = 512;
-  const int grids = (count + blocks - 1) / blocks;
-  padding_out<float><<<grids, blocks, 0, stream>>>(_output_tmp.data<float>(),
-                                                   _offset_r.data<int>(),
-                                                   seq_num,
-                                                   max_len_r,
-                                                   dim_t * len_l,
-                                                   count,
-                                                   out_data);
+  padding_out<T><<<CUDA_GET_BLOCKS(count), CUDA_NUM_THREADS, 0, stream>>>(
+      _output_tmp.data<T>(),
+      _offset_r.data<int>(),
+      seq_num,
+      max_len_r,
+      dim_t * len_l,
+      count,
+      out_data);
   out->set_lod(y->lod());
 }
 
@@ -164,12 +210,14 @@ void MatchMatrixTensorCompute::Run() {
 }  // namespace lite
 }  // namespace paddle
 
-REGISTER_LITE_KERNEL(match_matrix_tensor,
-                     kCUDA,
-                     kFloat,
-                     kNCHW,
-                     paddle::lite::kernels::cuda::MatchMatrixTensorCompute,
-                     def)
+using MMTFp32 =
+    paddle::lite::kernels::cuda::MatchMatrixTensorCompute<float,
+                                                          PRECISION(kFloat)>;
+using MMTFp16 =
+    paddle::lite::kernels::cuda::MatchMatrixTensorCompute<half,
+                                                          PRECISION(kFP16)>;
+
+REGISTER_LITE_KERNEL(match_matrix_tensor, kCUDA, kFloat, kNCHW, MMTFp32, def)
     .BindInput("X",
                {LiteType::GetTensorTy(TARGET(kCUDA),
                                       PRECISION(kFloat),
@@ -189,5 +237,28 @@ REGISTER_LITE_KERNEL(match_matrix_tensor,
     .BindOutput("Tmp",
                 {LiteType::GetTensorTy(TARGET(kCUDA),
                                        PRECISION(kFloat),
+                                       DATALAYOUT(kNCHW))})
+    .Finalize();
+
+REGISTER_LITE_KERNEL(match_matrix_tensor, kCUDA, kFP16, kNCHW, MMTFp16, def)
+    .BindInput("X",
+               {LiteType::GetTensorTy(TARGET(kCUDA),
+                                      PRECISION(kFP16),
+                                      DATALAYOUT(kNCHW))})
+    .BindInput("W",
+               {LiteType::GetTensorTy(TARGET(kCUDA),
+                                      PRECISION(kFloat),
+                                      DATALAYOUT(kNCHW))})
+    .BindInput("Y",
+               {LiteType::GetTensorTy(TARGET(kCUDA),
+                                      PRECISION(kFP16),
+                                      DATALAYOUT(kNCHW))})
+    .BindOutput("Out",
+                {LiteType::GetTensorTy(TARGET(kCUDA),
+                                       PRECISION(kFP16),
+                                       DATALAYOUT(kNCHW))})
+    .BindOutput("Tmp",
+                {LiteType::GetTensorTy(TARGET(kCUDA),
+                                       PRECISION(kFP16),
                                        DATALAYOUT(kNCHW))})
     .Finalize();

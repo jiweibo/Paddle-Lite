@@ -23,8 +23,9 @@ namespace lite {
 namespace kernels {
 namespace cuda {
 
+template <typename T, PrecisionType PType>
 class MatchMatrixTensorCompute
-    : public KernelLite<TARGET(kCUDA), PRECISION(kFloat), DATALAYOUT(kNCHW)> {
+    : public KernelLite<TARGET(kCUDA), PType, DATALAYOUT(kNCHW)> {
  public:
   using param_t = operators::MatchMatrixTensorParam;
 
@@ -33,11 +34,13 @@ class MatchMatrixTensorCompute
   virtual ~MatchMatrixTensorCompute() = default;
 
  private:
-  std::unique_ptr<lite::cuda::math::Gemm<float, float>> gemm_impl_;
+  std::unique_ptr<lite::cuda::math::Gemm<T, T>> gemm_impl_;
   lite::Tensor _input_l_transform;
   lite::Tensor _input_l_transform_reorganize;
   lite::Tensor _output_tmp;
   lite::Tensor _offset_r;
+  const lite::Tensor* w_tensor_;
+  lite::Tensor w_half_tensor_;
 };
 
 }  // namespace cuda

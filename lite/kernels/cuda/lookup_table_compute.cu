@@ -130,7 +130,19 @@ void LookupTableCompute<float, PRECISION(kFloat)>::PrepareForRun() {
 }
 
 template <>
-void LookupTableCompute<float, PRECISION(kFloat)>::Run() {
+void LookupTableCompute<half, PRECISION(kFP16)>::PrepareForRun() {
+  auto &param = this->Param<param_t>();
+  w_half_tensor_.Resize(param.W->dims());
+  lite::cuda::math::fp32_to_fp16(
+      param.W->numel(),
+      param.W->data<float>(),
+      w_half_tensor_.mutable_data<half>(TARGET(kCUDA)));
+  w_half_tensor_.set_lod(param.W->lod());
+  w_tensor_ = &w_half_tensor_;
+}
+
+template <typename T, PrecisionType PType>
+void LookupTableCompute<T, PType>::Run() {
   auto &param = this->template Param<param_t>();
   auto &ctx = this->ctx_->template As<CUDAContext>();
   auto stream = ctx.exec_stream();
@@ -142,53 +154,14 @@ void LookupTableCompute<float, PRECISION(kFloat)>::Run() {
   size_t D = w_tensor_->dims()[1];
   size_t K = ids_t->numel();
 
-  auto *w = w_tensor_->data<float>();
+  auto *w = w_tensor_->data<T>();
   auto *ids = ids_t->data<int64_t>();
-  auto *out = out_t->mutable_data<float>(TARGET(kCUDA));
+  auto *out = out_t->mutable_data<T>(TARGET(kCUDA));
 
   dim3 threads(128, 8);
   dim3 grids(8, 1);
   bool padding_flag = !(padding_idx == -1);
-  LookupTableKernel<float><<<grids, threads, 0, stream>>>(
-      out, w, ids, N, K, D, padding_flag, padding_idx);
-
-  cudaError_t error = cudaGetLastError();
-  if (error != cudaSuccess) LOG(INFO) << cudaGetErrorString(error);
-}
-
-template <>
-void LookupTableCompute<half, PRECISION(kFP16)>::PrepareForRun() {
-  auto &param = this->Param<param_t>();
-  w_tensor_ = param.W;
-  w_half_tensor_.Resize(w_tensor_->dims());
-  lite::cuda::math::fp32_to_fp16(
-      w_tensor_->numel(),
-      w_tensor_->data<float>(),
-      w_half_tensor_.mutable_data<half>(TARGET(kCUDA)));
-  w_half_tensor_.set_lod(w_tensor_->lod());
-}
-
-template <>
-void LookupTableCompute<half, PRECISION(kFP16)>::Run() {
-  auto &param = this->template Param<param_t>();
-  auto &ctx = this->ctx_->template As<CUDAContext>();
-  auto stream = ctx.exec_stream();
-  const Tensor *ids_t = param.Ids;
-  Tensor *out_t = param.Out;
-  int64_t padding_idx = param.padding_idx;
-
-  size_t N = w_half_tensor_.dims()[0];
-  size_t D = w_half_tensor_.dims()[1];
-  size_t K = ids_t->numel();
-
-  auto *w = w_half_tensor_.data<half>();
-  auto *ids = ids_t->data<int64_t>();
-  auto *out = out_t->mutable_data<half>(TARGET(kCUDA));
-
-  dim3 threads(128, 8);
-  dim3 grids(8, 1);
-  bool padding_flag = !(padding_idx == -1);
-  LookupTableKernel<half><<<grids, threads, 0, stream>>>(
+  LookupTableKernel<T><<<grids, threads, 0, stream>>>(
       out, w, ids, N, K, D, padding_flag, padding_idx);
 
   cudaError_t error = cudaGetLastError();

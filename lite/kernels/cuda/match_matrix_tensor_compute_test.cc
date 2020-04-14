@@ -18,6 +18,7 @@
 #include <utility>
 #include <vector>
 #include "lite/api/test_helper.h"
+#include "lite/backends/cuda/float16.h"
 
 namespace paddle {
 namespace lite {
@@ -26,93 +27,200 @@ namespace cuda {
 
 using Tensor = lite::Tensor;
 
-TEST(match_matrix_tensor, normal) {
-  std::unique_ptr<KernelContext> ctx(new KernelContext);
-  auto& context = ctx->As<CUDAContext>();
+class MatchMatrixTest : public ::testing::Test {
+ protected:
+  MatchMatrixTest()
+      : ix(6),
+        iy(4),
+        h(2),
+        dim_t(2),
+        x_shape({ix, h}),
+        w_shape({h, dim_t, h}),
+        y_shape({iy, h}),
+        x_lod({{0, 3, 6}}),
+        y_lod({{0, 3, 4}}) {
+    int batch = y_lod[0].size() - 1;
+    int len_l = x_lod[0][1] - x_lod[0][0];
+    for (size_t i = 1; i < x_lod[0].size() - 1; i++) {
+      int cur_len = x_lod[0][i + 1] - x_lod[0][i];
+      CHECK_EQ(cur_len, len_l)
+          << "each sequence of left matrix is the same length";
+    }
+    int max_len_r = 0;
+    for (size_t i = 0; i < y_lod[0].size() - 1; ++i) {
+      int cur_len = y_lod[0][i + 1] - y_lod[0][i];
+      max_len_r = cur_len > max_len_r ? cur_len : max_len_r;
+    }
+    out_shape.clear();
+    out_shape.push_back(batch);
+    out_shape.push_back(dim_t);
+    out_shape.push_back(len_l);
+    out_shape.push_back(max_len_r);
 
-  MatchMatrixTensorCompute kernel;
+    X_gpu.Resize(lite::DDim(x_shape));
+    X_ref.Resize(lite::DDim(x_shape));
+    X_ref.set_lod(x_lod);
+
+    W_gpu.Resize(lite::DDim(w_shape));
+    W_ref.Resize(lite::DDim(w_shape));
+
+    Y_gpu.Resize(lite::DDim(y_shape));
+    Y_ref.Resize(lite::DDim(y_shape));
+    Y_ref.set_lod(y_lod);
+
+    auto x_ref_data = X_ref.mutable_data<float>();
+    auto w_ref_data = W_ref.mutable_data<float>();
+    auto y_ref_data = Y_ref.mutable_data<float>();
+
+    // prepare input
+    for (int64_t i = 0; i < X_ref.numel(); i++) {
+      x_ref_data[i] = static_cast<float>(i);
+    }
+    for (int64_t i = 0; i < W_ref.numel(); i++) {
+      w_ref_data[i] = static_cast<float>(i);
+    }
+    for (int64_t i = 0; i < Y_ref.numel(); i++) {
+      y_ref_data[i] = static_cast<float>(i);
+    }
+
+    Out_ref.Resize(lite::DDim(out_shape));
+    Out_cpu.Resize(lite::DDim(out_shape));
+    fc_cpu_base(&X_ref, &W_ref, &Y_ref, &Out_ref);
+
+    device_init();
+  }
+
+  void device_init() {
+    ctx.reset(new KernelContext);
+    cudaStreamCreate(&stream);
+    param.x = &X_gpu;
+    param.w = &W_gpu;
+    param.y = &Y_gpu;
+    param.dim_t = dim_t;
+    param.out = &Out_gpu;
+    param.tmp = &Out_tmp;
+    W_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(W_ref.data<float>(),
+                                                   W_gpu.dims());
+  }
+
+  void float_data_init() {
+    X_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(X_ref.data<float>(),
+                                                   X_gpu.dims());
+    Y_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(Y_ref.data<float>(),
+                                                   Y_gpu.dims());
+    X_gpu.set_lod(X_ref.lod());
+    Y_gpu.set_lod(Y_ref.lod());
+  }
+
+  void half_data_init() {
+    X_half.Resize(lite::DDim(x_shape));
+    auto x_half_data = X_half.mutable_data<__half>();
+    for (int64_t i = 0; i < X_half.numel(); i++) {
+      x_half_data[i] = half(lite::cuda::float16(X_ref.data<float>()[i]));
+    }
+    X_gpu.Assign<__half, lite::DDim, TARGET(kCUDA)>(x_half_data, X_gpu.dims());
+    X_gpu.set_lod(X_ref.lod());
+    Y_half.Resize(lite::DDim(y_shape));
+    auto y_half_data = Y_half.mutable_data<__half>();
+    for (int64_t i = 0; i < Y_half.numel(); i++) {
+      y_half_data[i] = half(lite::cuda::float16(Y_ref.data<float>()[i]));
+    }
+    Y_gpu.Assign<__half, lite::DDim, TARGET(kCUDA)>(y_half_data, Y_gpu.dims());
+    Y_gpu.set_lod(Y_ref.lod());
+  }
+
+  void fc_cpu_base(const lite::Tensor* X,
+                   const lite::Tensor* W,
+                   const lite::Tensor* b,
+                   lite::Tensor* Out) {
+    std::vector<float> ref_results = {5,  23, 41, 17,  75,  133, 29,  127, 225,
+                                      7,  33, 59, 27,  125, 223, 47,  217, 387,
+                                      59, 0,  0,  191, 0,   0,   323, 0,   0,
+                                      85, 0,  0,  321, 0,   0,   557, 0,   0};
+    for (size_t i = 0; i < ref_results.size(); ++i) {
+      Out->mutable_data<float>()[i] = ref_results[i];
+    }
+  }
+
+  int ix, iy, h, dim_t;
+  std::vector<int64_t> x_shape, w_shape, y_shape, out_shape;
+  LoD x_lod, y_lod;
+  lite::Tensor X_ref, W_ref, Y_ref, Out_ref;
+  lite::Tensor X_gpu, W_gpu, Y_gpu;
+  lite::Tensor X_half, Y_half;
+  lite::Tensor Out_cpu, Out_gpu, Out_tmp;
+
   operators::MatchMatrixTensorParam param;
-
-  // prepare ins and outs tensor in gpu, including size and lod
-  int ix = 5, iy = 4, h = 2, dim_t = 2;
-  Tensor x, w, y, out, tmp;
-  x.Resize({ix, h});
-  w.Resize({h, dim_t, h});
-  y.Resize({iy, h});
-  out.Resize({18, 1});
-  tmp.Resize({20, 1});
-  LoD x_lod{};
-  x_lod.push_back({0, 2, 5});
-  x.set_lod(x_lod);
-  LoD y_lod{};
-  y_lod.push_back({0, 3, 4});
-  y.set_lod(y_lod);
-
-  // init ins tensor in cpu
-  Tensor x_cpu, w_cpu, y_cpu, out_cpu, tmp_cpu;
-  x_cpu.Resize({ix, h});
-  w_cpu.Resize({h, dim_t, h});
-  y_cpu.Resize({iy, h});
-  out_cpu.Resize({18, 1});
-  tmp_cpu.Resize({20, 1});
-
-  auto* x_cpu_data = x_cpu.mutable_data<float>();
-  auto* w_cpu_data = w_cpu.mutable_data<float>();
-  auto* y_cpu_data = y_cpu.mutable_data<float>();
-  for (int i = 0; i < x_cpu.numel(); ++i) {
-    x_cpu_data[i] = static_cast<float>(i);
-  }
-  for (int i = 0; i < w_cpu.numel(); ++i) {
-    w_cpu_data[i] = static_cast<float>(i);
-  }
-  for (int i = 0; i < y_cpu.numel(); ++i) {
-    y_cpu_data[i] = static_cast<float>(i);
-  }
-
-  // cpu tensor data assigin to gpu tensor
-  x.Assign<float, lite::DDim, TARGET(kCUDA)>(x_cpu_data, x_cpu.dims());
-  w.Assign<float, lite::DDim, TARGET(kCUDA)>(w_cpu_data, w_cpu.dims());
-  y.Assign<float, lite::DDim, TARGET(kCUDA)>(y_cpu_data, y_cpu.dims());
-
-  param.x = &x;
-  param.w = &w;
-  param.y = &y;
-  param.dim_t = dim_t;
-  param.out = &out;
-  param.tmp = &tmp;
-  kernel.SetParam(param);
-
+  std::unique_ptr<KernelContext> ctx;
   cudaStream_t stream;
-  cudaStreamCreate(&stream);
-  context.SetExecStream(stream);
-  kernel.SetContext(std::move(ctx));
-  kernel.Launch();
-  cudaDeviceSynchronize();
+};
 
-  auto* out_cpu_data = out_cpu.mutable_data<float>();
-  auto* out_data = out.mutable_data<float>(TARGET(kCUDA));
-  CopySync<TARGET(kCUDA)>(
-      out_cpu_data, out_data, sizeof(float) * out.numel(), IoDirection::DtoH);
-  std::vector<float> ref_results = {5,
-                                    23,
-                                    41,
-                                    17,
-                                    75,
-                                    133,
-                                    7,
-                                    33,
-                                    59,
-                                    27,
-                                    125,
-                                    223,
-                                    323,
-                                    455,
-                                    587,
-                                    557,
-                                    793,
-                                    1029};
-  for (int i = 0; i < out.numel(); i++) {
-    EXPECT_NEAR(out_cpu_data[i], ref_results[i], 1e-5);
+TEST_F(MatchMatrixTest, TestFP32) {
+  float_data_init();
+  auto& context = ctx->As<CUDAContext>();
+  context.SetExecStream(stream);
+  MatchMatrixTensorCompute<float, PRECISION(kFloat)> match_matrix_kernel;
+  match_matrix_kernel.SetParam(param);
+  match_matrix_kernel.SetContext(std::move(ctx));
+
+  for (int i = 0; i < FLAGS_warmup; ++i) {
+    match_matrix_kernel.Launch();
+    cudaDeviceSynchronize();
+  }
+
+  auto start = GetCurrentUS();
+  for (int i = 0; i < FLAGS_repeats; ++i) {
+    match_matrix_kernel.Launch();
+  }
+  cudaDeviceSynchronize();
+  auto duration = (GetCurrentUS() - start) / 1000.0;
+  LOG(INFO) << "fp32, warmup: " << FLAGS_warmup
+            << ", repeats: " << FLAGS_repeats << ", spend "
+            << duration / FLAGS_repeats << " ms in average.";
+
+  CopySync<TARGET(kCUDA)>(Out_cpu.mutable_data<float>(),
+                          Out_gpu.data<float>(),
+                          sizeof(float) * Out_gpu.numel(),
+                          IoDirection::DtoH);
+  for (int i = 0; i < Out_gpu.numel(); ++i) {
+    EXPECT_NEAR(Out_cpu.data<float>()[i], Out_ref.data<float>()[i], 5e-4);
+  }
+}
+
+TEST_F(MatchMatrixTest, TestFP16) {
+  half_data_init();
+  auto& context = ctx->As<CUDAContext>();
+  context.SetExecStream(stream);
+  MatchMatrixTensorCompute<__half, PRECISION(kFP16)> match_matrix_kernel;
+  match_matrix_kernel.SetParam(param);
+  match_matrix_kernel.SetContext(std::move(ctx));
+
+  for (int i = 0; i < FLAGS_warmup; ++i) {
+    match_matrix_kernel.Launch();
+    cudaDeviceSynchronize();
+  }
+
+  auto start = GetCurrentUS();
+  for (int i = 0; i < FLAGS_repeats; ++i) {
+    match_matrix_kernel.Launch();
+  }
+  cudaDeviceSynchronize();
+  auto duration = (GetCurrentUS() - start) / 1000.0;
+  LOG(INFO) << "fp16, warmup: " << FLAGS_warmup
+            << ", repeats: " << FLAGS_repeats << ", spend "
+            << duration / FLAGS_repeats << " ms in average.";
+
+  const __half* out_gpu_data = Out_gpu.data<__half>();
+  __half* out_cpu_data = Out_cpu.mutable_data<__half>();
+  CopySync<TARGET(kCUDA)>(out_cpu_data,
+                          out_gpu_data,
+                          sizeof(__half) * Out_gpu.numel(),
+                          IoDirection::DtoH);
+
+  for (int i = 0; i < Out_cpu.numel(); ++i) {
+    float res = static_cast<float>(lite::cuda::float16(out_cpu_data[i]));
+    float ref = Out_ref.data<float>()[i];
+    EXPECT_NEAR(fabs(res - ref) / (ref + 1e-5), 0., 1e-2);
   }
 }
 

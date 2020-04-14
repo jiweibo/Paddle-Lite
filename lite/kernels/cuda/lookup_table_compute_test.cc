@@ -49,12 +49,11 @@ class LookUpTableTest : public ::testing::Test {
     auto w_ref_data = W_ref.mutable_data<float>();
 
     // prepare input
-    for (int64_t i = 0; i < Ids_ref.dims().production(); i++) {
+    for (int64_t i = 0; i < Ids_ref.numel(); i++) {
       ids_ref_data[i] = i % vocab_size;
     }
-    for (int64_t i = 0; i < W_ref.dims().production(); i++) {
-      w_ref_data[i] =
-          static_cast<float>(i + 1) / (W_ref.dims().production() + 1);
+    for (int64_t i = 0; i < W_ref.numel(); i++) {
+      w_ref_data[i] = static_cast<float>(i + 1) / (W_ref.numel() + 1);
     }
 
     Out_ref.Resize(lite::DDim(out_shape));
