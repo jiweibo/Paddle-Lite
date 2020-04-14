@@ -218,12 +218,12 @@ REGISTER_LITE_KERNEL(lookup_table_v2, kCUDA, kFloat, kNCHW, LKTFp32, def)
                 {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFloat))})
     .Finalize();
 REGISTER_LITE_KERNEL(lookup_table, kCUDA, kFP16, kNCHW, LKTFp16, def)
-    .BindInput("W", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .BindInput("W", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFloat))})
     .BindInput("Ids", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kInt64))})
     .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
     .Finalize();
 REGISTER_LITE_KERNEL(lookup_table_v2, kCUDA, kFP16, kNCHW, LKTFp16, def)
-    .BindInput("W", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .BindInput("W", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFloat))})
     .BindInput("Ids", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kInt64))})
     .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
     .Finalize();

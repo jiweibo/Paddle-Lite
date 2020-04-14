@@ -148,7 +148,7 @@ REGISTER_LITE_KERNEL(search_fc, kCUDA, kFloat, kNCHW, FCFp32, def)
 
 REGISTER_LITE_KERNEL(search_fc, kCUDA, kFP16, kNCHW, FCFp16, def)
     .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
-    .BindInput("W", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
-    .BindInput("b", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .BindInput("W", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFloat))})
+    .BindInput("b", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFloat))})
     .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
     .Finalize();

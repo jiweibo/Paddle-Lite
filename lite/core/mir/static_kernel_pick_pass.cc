@@ -47,18 +47,13 @@ void StaticKernelPickPass::Apply(const std::unique_ptr<SSAGraph>& graph) {
     auto& instruct = node.AsStmt();
 
     std::unordered_map<std::string, PrecisionType> in_types;
-    std::unordered_map<std::string, PrecisionType> out_types;
+    // threse precision info store in __model__ file, if selected fp16 kernel,
+    // the output precision should be changed
     for (std::list<Node*>::iterator i = node.inlinks.begin();
          i != node.inlinks.end();
          ++i) {
       if ((*i)->arg()->type)
         in_types[(*i)->arg()->name] = (*i)->arg()->type->precision();
-    }
-    for (std::list<Node*>::iterator i = node.outlinks.begin();
-         i != node.outlinks.end();
-         ++i) {
-      if ((*i)->arg()->type)
-        out_types[(*i)->arg()->name] = (*i)->arg()->type->precision();
     }
     // Get candidate kernels
     std::vector<std::pair<float, std::unique_ptr<KernelBase>>> scored;
@@ -70,7 +65,6 @@ void StaticKernelPickPass::Apply(const std::unique_ptr<SSAGraph>& graph) {
                                 *kernel,
                                 graph->valid_places(),
                                 in_types,
-                                out_types,
                                 instruct.op_info()->input_names(),
                                 instruct.op_info()->output_names());
       VLOG(4) << "kernel->summary():" << kernel->summary()
@@ -86,7 +80,18 @@ void StaticKernelPickPass::Apply(const std::unique_ptr<SSAGraph>& graph) {
       // TODO(Superjomn) reconsider this.
       instruct.kernels().emplace_back(std::move(scored.front().second));
       VLOG(2) << "pick " << instruct.kernels().front()->name() << "\n\n";
-
+      // Reset the kernel output's precision type, according to the selected
+      // kernel.
+      for (std::list<Node*>::iterator i = node.outlinks.begin();
+           i != node.outlinks.end();
+           ++i) {
+        if ((*i)->arg()->type) {
+          (*i)->AsArg().type =
+              LiteType::GetTensorTy((*i)->arg()->type->target(),
+                                    instruct.kernels().front()->precision(),
+                                    (*i)->arg()->type->layout());
+        }
+      }
     } else {
       bool out_type_int8 = true;
       // Only if all ops linked to this op output has enable_int8 attr,
@@ -126,7 +131,6 @@ void StaticKernelPickPass::Apply(const std::unique_ptr<SSAGraph>& graph) {
                                     *kernel,
                                     graph->valid_places(),
                                     in_types,
-                                    out_types,
                                     instruct.op_info()->input_names(),
                                     instruct.op_info()->output_names());
           scored.emplace_back(score, std::move(kernel));

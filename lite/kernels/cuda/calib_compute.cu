@@ -103,6 +103,7 @@ void CalibComputeFp32ToFp16::Run() {
   int num = static_cast<int>(param.input->numel());
   int threads = 1024;
   int blocks = (num + threads - 1) / threads;
+  param.output->set_lod(param.input->lod());
   Fp32ToFp16Kernel<<<blocks, threads, 0, stream>>>(num, din, dout);
   cudaError_t error = cudaGetLastError();
   CHECK(error == cudaSuccess) << cudaGetErrorString(error);
@@ -118,6 +119,7 @@ void CalibComputeFp16ToFp32::Run() {
   int num = static_cast<int>(param.input->numel());
   int threads = 1024;
   int blocks = (num + threads - 1) / threads;
+  param.output->set_lod(param.input->lod());
   Fp16ToFp32Kernel<<<blocks, threads, 0, stream>>>(num, din, dout);
   cudaError_t error = cudaGetLastError();
   CHECK(error == cudaSuccess) << cudaGetErrorString(error);
