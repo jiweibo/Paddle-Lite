@@ -85,7 +85,7 @@ class MatchMatrixTest : public ::testing::Test {
 
     Out_ref.Resize(lite::DDim(out_shape));
     Out_cpu.Resize(lite::DDim(out_shape));
-    fc_cpu_base(&X_ref, &W_ref, &Y_ref, &Out_ref);
+    cpu_ref(&X_ref, &W_ref, &Y_ref, &Out_ref);
 
     device_init();
   }
@@ -129,10 +129,10 @@ class MatchMatrixTest : public ::testing::Test {
     Y_gpu.set_lod(Y_ref.lod());
   }
 
-  void fc_cpu_base(const lite::Tensor* X,
-                   const lite::Tensor* W,
-                   const lite::Tensor* b,
-                   lite::Tensor* Out) {
+  void cpu_ref(const lite::Tensor* X,
+               const lite::Tensor* W,
+               const lite::Tensor* b,
+               lite::Tensor* Out) {
     std::vector<float> ref_results = {5,  23, 41, 17,  75,  133, 29,  127, 225,
                                       7,  33, 59, 27,  125, 223, 47,  217, 387,
                                       59, 0,  0,  191, 0,   0,   323, 0,   0,

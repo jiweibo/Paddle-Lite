@@ -59,7 +59,7 @@ class LookUpTableTest : public ::testing::Test {
     Out_ref.Resize(lite::DDim(out_shape));
     Out_cpu.Resize(lite::DDim(out_shape));
     Out_gpu.Resize(lite::DDim(out_shape));
-    fc_cpu_base(&Ids_ref, &W_ref, &Out_ref, padding_idx);
+    cpu_ref(&Ids_ref, &W_ref, &Out_ref, padding_idx);
 
     device_init();
   }
@@ -82,10 +82,10 @@ class LookUpTableTest : public ::testing::Test {
 
   void half_data_init() {}
 
-  void fc_cpu_base(const lite::Tensor* ids_t,
-                   const lite::Tensor* table_t,
-                   lite::Tensor* output_t,
-                   int64_t padding_idx) {
+  void cpu_ref(const lite::Tensor* ids_t,
+               const lite::Tensor* table_t,
+               lite::Tensor* output_t,
+               int64_t padding_idx) {
     auto* ids = ids_t->data<int64_t>();
     int64_t ids_numel = ids_t->dims().production();
 
