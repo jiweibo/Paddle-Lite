@@ -55,6 +55,7 @@ class StaticKernelPickPass : public mir::StmtPass {
       const lite::KernelBase& kernel,
       const std::vector<Place>& places,
       const std::unordered_map<std::string, PrecisionType>& in_types,
+      const std::unordered_map<std::string, PrecisionType>& out_types,
       const std::vector<std::string>& in_names,
       const std::vector<std::string>& out_names) {
     CHECK_GT(places.size(), static_cast<size_t>(0)) << "valid_places is empty.";
@@ -108,18 +109,32 @@ class StaticKernelPickPass : public mir::StmtPass {
       VLOG(4) << "[score s3]:" << score;
 
       // add new rules for precision: When the input types are consistent with
-      // kernel's input types, select the kernel of the precision. Note that
-      // this
-      // strategy is not compatible with quantization, so skip quantization op.
+      // kernel's input types, select the kernel of the precision. However, if
+      // the op is feed, we should compare the output precision type.
+      // Note that this strategy is not compatible with quantization, so skip
+      // quantization op.
       if (!instruct.op_info()->HasAttr("enable_int8")) {
         bool type_match = true;
-        for (size_t i = 0; i < in_names.size(); ++i) {
-          std::string tmp;
-          CHECK(instruct.op_info()->GetInputArgname(in_names[i], &tmp));
-          if (in_types.count(in_names[i]) &&
-              !PrecTypeCompatible(in_types.at(in_names[i]),
-                                  kernel.GetInputDeclType(tmp)->precision())) {
-            type_match = false;
+        if (instruct.op_type() == "feed") {
+          for (size_t i = 0; i < out_names.size(); ++i) {
+            std::string tmp;
+            CHECK(instruct.op_info()->GetOutputArgname(out_names[i], &tmp));
+            if (out_types.count(out_names[i]) &&
+                out_types.at(out_names[i]) !=
+                    kernel.GetOutputDeclType(tmp)->precision()) {
+              type_match = false;
+            }
+          }
+        } else {
+          for (size_t i = 0; i < in_names.size(); ++i) {
+            std::string tmp;
+            CHECK(instruct.op_info()->GetInputArgname(in_names[i], &tmp));
+            if (in_types.count(in_names[i]) &&
+                !PrecTypeCompatible(
+                    in_types.at(in_names[i]),
+                    kernel.GetInputDeclType(tmp)->precision())) {
+              type_match = false;
+            }
           }
         }
         if (type_match) {

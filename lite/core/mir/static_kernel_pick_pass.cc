@@ -47,6 +47,7 @@ void StaticKernelPickPass::Apply(const std::unique_ptr<SSAGraph>& graph) {
     auto& instruct = node.AsStmt();
 
     std::unordered_map<std::string, PrecisionType> in_types;
+    std::unordered_map<std::string, PrecisionType> out_types;
     // threse precision info store in __model__ file, if selected fp16 kernel,
     // the output precision should be changed
     for (std::list<Node*>::iterator i = node.inlinks.begin();
@@ -54,6 +55,12 @@ void StaticKernelPickPass::Apply(const std::unique_ptr<SSAGraph>& graph) {
          ++i) {
       if ((*i)->arg()->type)
         in_types[(*i)->arg()->name] = (*i)->arg()->type->precision();
+    }
+    for (std::list<Node*>::iterator i = node.outlinks.begin();
+         i != node.outlinks.end();
+         ++i) {
+      if ((*i)->arg()->type)
+        out_types[(*i)->arg()->name] = (*i)->arg()->type->precision();
     }
     // Get candidate kernels
     std::vector<std::pair<float, std::unique_ptr<KernelBase>>> scored;
@@ -65,6 +72,7 @@ void StaticKernelPickPass::Apply(const std::unique_ptr<SSAGraph>& graph) {
                                 *kernel,
                                 graph->valid_places(),
                                 in_types,
+                                out_types,
                                 instruct.op_info()->input_names(),
                                 instruct.op_info()->output_names());
       VLOG(4) << "kernel->summary():" << kernel->summary()
@@ -131,6 +139,7 @@ void StaticKernelPickPass::Apply(const std::unique_ptr<SSAGraph>& graph) {
                                     *kernel,
                                     graph->valid_places(),
                                     in_types,
+                                    out_types,
                                     instruct.op_info()->input_names(),
                                     instruct.op_info()->output_names());
           scored.emplace_back(score, std::move(kernel));
