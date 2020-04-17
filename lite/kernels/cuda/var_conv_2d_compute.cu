@@ -107,7 +107,7 @@ void VarConv2DCompute<float, PRECISION(kFloat)>::PrepareForRun() {
     conv_param_.activation_param.active_type = lite_api::ActivationType::kRelu;
   }
   conv_param_.output->Resize({output_shape});
-  conv_impl_.reset(new lite::cuda::math::CudnnConv2D<PRECISION(kFloat)>);
+  conv_impl_.reset(new lite::cuda::math::CudnnConv2D<float, PRECISION(kFloat)>);
   conv_impl_->init(conv_param_, &context);
 }
 
@@ -157,7 +157,7 @@ void VarConv2DCompute<half, PRECISION(kFP16)>::PrepareForRun() {
     conv_param_.activation_param.active_type = lite_api::ActivationType::kRelu;
   }
   conv_param_.output->Resize({output_shape});
-  conv_impl_.reset(new lite::cuda::math::CudnnConv2D<PRECISION(kFP16)>);
+  conv_impl_.reset(new lite::cuda::math::CudnnConv2D<half, PRECISION(kFP16)>);
   conv_impl_->init(conv_param_, &context);
 }
 

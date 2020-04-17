@@ -47,7 +47,7 @@ add_kernel(var_conv_2d_compute_cuda CUDA extra SRCS var_conv_2d_compute.cu DEPS 
 
 # unit test
 lite_cc_test(calib_compute_cuda_test SRCS calib_compute_cuda_test.cc DEPS calib_compute_cuda)
-#nv_test(conv2d_cuda_test SRCS conv_compute_test.cc DEPS conv2d_cuda)
+nv_test(conv2d_cuda_test SRCS conv_compute_test.cc DEPS conv2d_cuda)
 nv_test(nearest_interp_compute_cuda_test SRCS nearest_interp_compute_test.cc DEPS nearest_interp_compute_cuda)
 nv_test(leaky_relu_compute_cuda_test SRCS leaky_relu_compute_test.cc DEPS leaky_relu_compute_cuda)
 nv_test(abs_compute_cuda_test SRCS abs_compute_test.cc DEPS abs_compute_cuda)

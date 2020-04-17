@@ -36,9 +36,9 @@ cudnnDataType_t GetDataType<PRECISION(kFP16)>() {
   return CUDNN_DATA_HALF;
 }
 
-template <PrecisionType Ptype_out>
-bool CudnnConv2D<Ptype_out>::create(const operators::ConvParam& param,
-                                    Context<TARGET(kCUDA)>* ctx) {
+template <typename T, PrecisionType Ptype_out>
+bool CudnnConv2D<T, Ptype_out>::create(const operators::ConvParam& param,
+                                       Context<TARGET(kCUDA)>* ctx) {
   auto x_dims = param.x->dims();
   auto w_dims = param.filter->dims();
   auto o_dims = param.output->dims();
@@ -111,9 +111,9 @@ bool CudnnConv2D<Ptype_out>::create(const operators::ConvParam& param,
   if (ic == param.groups && ic == oc && ic != 1) {
     this->fwd_algo_ = CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_GEMM;
   } else if (!param.var_length) {
-    const auto* i_data = param.x->data<float>();
-    const auto* w_data = param.filter->data<float>();
-    auto* o_data = param.output->mutable_data<float>(TARGET(kCUDA));
+    const auto* i_data = param.x->data<T>();
+    const auto* w_data = param.filter->data<T>();
+    auto* o_data = param.output->mutable_data<T>(TARGET(kCUDA));
     int workspace_size_limit = 256 * 1024 * 1024;
 
     auto search_func = [&]() {
@@ -194,9 +194,9 @@ bool CudnnConv2D<Ptype_out>::create(const operators::ConvParam& param,
   return true;
 }
 
-template <PrecisionType Ptype_out>
-bool CudnnConv2D<Ptype_out>::init(const operators::ConvParam& param,
-                                  Context<TARGET(kCUDA)>* ctx) {
+template <typename T, PrecisionType Ptype_out>
+bool CudnnConv2D<T, Ptype_out>::init(const operators::ConvParam& param,
+                                     Context<TARGET(kCUDA)>* ctx) {
   this->workspace_size_inbytes_ = 0;
   this->workspace_data_ = NULL;
   this->workspace_fwd_sizes_ = 0;
@@ -223,12 +223,12 @@ bool CudnnConv2D<Ptype_out>::init(const operators::ConvParam& param,
   return create(param, ctx);
 }
 
-template <PrecisionType Ptype_out>
-bool CudnnConv2D<Ptype_out>::run(const operators::ConvParam& param) {
-  const auto* i_data = param.x->data<float>();
-  const auto* w_data = param.filter->data<float>();
-  const auto* b_data = param.bias ? param.bias->data<float>() : nullptr;
-  auto* o_data = param.output->mutable_data<float>(TARGET(kCUDA));
+template <typename T, PrecisionType Ptype_out>
+bool CudnnConv2D<T, Ptype_out>::run(const operators::ConvParam& param) {
+  const auto* i_data = param.x->data<T>();
+  const auto* w_data = param.filter->data<T>();
+  const auto* b_data = param.bias ? param.bias->data<T>() : nullptr;
+  auto* o_data = param.output->mutable_data<T>(TARGET(kCUDA));
 
   if (param.activation_param.has_active && this->with_relu_act_) {
     if (b_data) {
@@ -320,8 +320,8 @@ bool CudnnConv2D<Ptype_out>::run(const operators::ConvParam& param) {
   return true;
 }
 
-template class CudnnConv2D<PRECISION(kFloat)>;
-template class CudnnConv2D<PRECISION(kFP16)>;
+template class CudnnConv2D<float, PRECISION(kFloat)>;
+template class CudnnConv2D<half, PRECISION(kFP16)>;
 
 template <PrecisionType Ptype_out>
 bool CudnnConv2DInt8<Ptype_out>::create(const operators::ConvParam& param,

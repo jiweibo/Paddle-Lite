@@ -289,8 +289,9 @@ TEST_F(VarConvTest, TestFP32) {
   }
 
   auto start = GetCurrentUS();
+  var_conv_2d_kernel.PrepareForRun();
   for (int i = 0; i < FLAGS_repeats; ++i) {
-    var_conv_2d_kernel.Launch();
+    var_conv_2d_kernel.Run();
   }
   cudaDeviceSynchronize();
   auto duration = (GetCurrentUS() - start) / 1000.0;
@@ -322,8 +323,9 @@ TEST_F(VarConvTest, TestFP16) {
   }
 
   auto start = GetCurrentUS();
+  var_conv_2d_kernel.PrepareForRun();
   for (int i = 0; i < FLAGS_repeats; ++i) {
-    var_conv_2d_kernel.Launch();
+    var_conv_2d_kernel.Run();
   }
   cudaDeviceSynchronize();
   auto duration = (GetCurrentUS() - start) / 1000.0;

@@ -169,8 +169,9 @@ TEST_F(MatchMatrixTest, TestFP32) {
   }
 
   auto start = GetCurrentUS();
+  match_matrix_kernel.PrepareForRun();
   for (int i = 0; i < FLAGS_repeats; ++i) {
-    match_matrix_kernel.Launch();
+    match_matrix_kernel.Run();
   }
   cudaDeviceSynchronize();
   auto duration = (GetCurrentUS() - start) / 1000.0;
@@ -201,8 +202,9 @@ TEST_F(MatchMatrixTest, TestFP16) {
   }
 
   auto start = GetCurrentUS();
+  match_matrix_kernel.PrepareForRun();
   for (int i = 0; i < FLAGS_repeats; ++i) {
-    match_matrix_kernel.Launch();
+    match_matrix_kernel.Run();
   }
   cudaDeviceSynchronize();
   auto duration = (GetCurrentUS() - start) / 1000.0;

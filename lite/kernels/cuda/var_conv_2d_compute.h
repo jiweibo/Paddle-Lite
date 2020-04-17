@@ -33,7 +33,7 @@ class VarConv2DCompute : public KernelLite<TARGET(kCUDA), PType> {
 
  private:
   mutable operators::ConvParam conv_param_;
-  std::unique_ptr<lite::cuda::math::CudnnConv2D<PType>> conv_impl_;
+  std::unique_ptr<lite::cuda::math::CudnnConv2D<T, PType>> conv_impl_;
   lite::Tensor offset_;
   lite::Tensor w_half_tensor_;
 };
