@@ -16,6 +16,7 @@
 #include <memory>
 #include <vector>
 #include "lite/backends/cuda/blas.h"
+#include "lite/backends/cuda/cuda_utils.h"
 #include "lite/backends/cuda/math/gemm.h"
 #include "lite/core/kernel.h"
 
@@ -71,8 +72,9 @@ class SeqSortedseqTranseUtil {
   int _dev_map_vec_length;
 };
 
+template <typename T, PrecisionType PType>
 class SearchGrnnCompute
-    : public KernelLite<TARGET(kCUDA), PRECISION(kFloat), DATALAYOUT(kNCHW)> {
+    : public KernelLite<TARGET(kCUDA), PType, DATALAYOUT(kNCHW)> {
  public:
   using param_t = operators::SearchGrnnParam;
   using TargetW = TargetWrapper<TARGET(kCUDA)>;
@@ -89,7 +91,7 @@ class SearchGrnnCompute
   void WeightsPreprocess();
 
  private:
-  std::unique_ptr<lite::cuda::math::Gemm<float, float>> gemm_impl_;
+  std::unique_ptr<lite::cuda::math::Gemm<T, T>> gemm_impl_;
 
   lite::Tensor _temp_tensor_in;
   lite::Tensor _temp_tensor_out;
@@ -100,6 +102,8 @@ class SearchGrnnCompute
 
   lite::Tensor _wi;
   lite::Tensor _wh;
+  // for fp16
+  lite::Tensor _wi_tmp, _wh_tmp;
 
   SeqSortedseqTranseUtil _seq_util;
 };

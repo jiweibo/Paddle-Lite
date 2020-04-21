@@ -17,6 +17,7 @@
 #include <cublas_api.h>
 #include <cublas_v2.h>
 #include <cuda.h>
+#include <cuda_fp16.h>
 #include <cudnn.h>
 #include "lite/utils/cp_logging.h"
 
