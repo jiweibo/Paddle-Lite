@@ -42,7 +42,7 @@ add_kernel(search_fc_compute_cuda CUDA extra SRCS search_fc_compute.cu DEPS ${li
 add_kernel(sequence_topk_avg_pooling_compute_cuda CUDA extra SRCS sequence_topk_avg_pooling_compute.cu DEPS ${lite_kernel_deps})
 add_kernel(match_matrix_tensor_compute_cuda CUDA extra SRCS match_matrix_tensor_compute.cu DEPS ${lite_kernel_deps} ${math_cuda} cuda_gemm)
 add_kernel(search_aligned_mat_mul_compute_cuda CUDA extra SRCS search_aligned_mat_mul_compute.cc DEPS ${lite_kernel_deps} cuda_batched_gemm)
-add_kernel(search_seq_fc_compute_cuda CUDA extra SRCS search_seq_fc_compute.cu DEPS ${lite_kernel_deps} cuda_gemm)
+add_kernel(search_seq_fc_compute_cuda CUDA extra SRCS search_seq_fc_compute.cu DEPS ${lite_kernel_deps} ${math_cuda})
 add_kernel(var_conv_2d_compute_cuda CUDA extra SRCS var_conv_2d_compute.cu DEPS ${lite_kernel_deps} ${math_cuda})
 
 # unit test

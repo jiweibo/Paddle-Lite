@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "lite/backends/cuda/math/bias.h"
+#include "lite/backends/cuda/math/type_trans.h"
 #include "lite/core/op_registry.h"
 #include "lite/kernels/cuda/search_seq_fc_compute.h"
 
@@ -20,31 +22,43 @@ namespace lite {
 namespace kernels {
 namespace cuda {
 
-template <typename dtype>
-__global__ void add_bias(int n,
-                         int output_size,
-                         const dtype* bias,
-                         dtype* dout) {
-  int index = blockIdx.x * blockDim.x + threadIdx.x;
-  int bias_index = index % output_size;
-  if (index < n) {
-    dout[index] = dout[index] + bias[bias_index];
-  }
-}
-
-void SearchSeqFcCompute::PrepareForRun() {
+template <>
+void SearchSeqFcCompute<float, PRECISION(kFloat)>::PrepareForRun() {
   gemm_impl_.reset(new lite::cuda::math::Gemm<float, float>);
+  auto& param = this->Param<param_t>();
+  w_tensor_ = param.w;
+  b_tensor_ = param.b;
 }
 
-void SearchSeqFcCompute::Run() {
+template <>
+void SearchSeqFcCompute<half, PRECISION(kFP16)>::PrepareForRun() {
+  gemm_impl_.reset(new lite::cuda::math::Gemm<half, half>);
   auto& param = this->Param<param_t>();
-  CHECK(ctx_) << "running context should be set first";
-  auto& cuda_ctx = ctx_->template As<CUDAContext>();
+  w_half_tensor_.Resize(param.w->dims());
+  lite::cuda::math::fp32_to_fp16(
+      param.w->numel(),
+      param.w->data<float>(),
+      w_half_tensor_.mutable_data<half>(TARGET(kCUDA)));
+  w_tensor_ = &w_half_tensor_;
+  b_half_tensor_.Resize(param.b->dims());
+  lite::cuda::math::fp32_to_fp16(
+      param.b->numel(),
+      param.b->data<float>(),
+      b_half_tensor_.mutable_data<half>(TARGET(kCUDA)));
+  b_half_tensor_.set_lod(param.b->lod());
+  b_tensor_ = &b_half_tensor_;
+}
+
+template <typename T, PrecisionType PType>
+void SearchSeqFcCompute<T, PType>::Run() {
+  auto& param = this->template Param<param_t>();
+  // CHECK(ctx_) << "running context should be set first";
+  auto& cuda_ctx = this->ctx_->template As<CUDAContext>();
   auto cuda_stream = cuda_ctx.exec_stream();
 
   auto x = param.x;
-  auto w = param.w;
-  auto b = param.b;
+  auto w = w_tensor_;
+  auto b = b_tensor_;
   auto out = param.out;
   auto out_size = param.out_size;
   const auto x_dims = x->dims();
@@ -60,9 +74,9 @@ void SearchSeqFcCompute::Run() {
   int M = x_dims[0];
   int K = x_dims[1];
   int N = w_dims[0];
-  auto x_data = x->data<float>();
-  auto w_data = w->data<float>();
-  auto out_data = out->mutable_data<float>(TARGET(kCUDA));
+  auto x_data = x->template data<T>();
+  auto w_data = w->data<T>();
+  auto out_data = out->template mutable_data<T>(TARGET(kCUDA));
 
   CHECK(gemm_impl_->init(false, true, M, N, K, &cuda_ctx));
   gemm_impl_->run(1.0f, 0.0f, x_data, w_data, out_data, &cuda_ctx);
@@ -71,12 +85,9 @@ void SearchSeqFcCompute::Run() {
     auto b_dims = b->dims();
     CHECK_EQ(b_dims.size(), 1) << "b should be 1-D tensor.";
     CHECK_EQ(b_dims[0], w_dims[0]) << "Wrong shape: b_dims[0] != w_dims[0]";
-    auto b_data = b->mutable_data<float>();
+    auto b_data = b->data<T>();
     int total_size = M * N;
-    add_bias<float><<<CUDA_GET_BLOCKS(total_size),
-                      CUDA_NUM_THREADS,
-                      0,
-                      cuda_stream>>>(total_size, N, b_data, out_data);
+    lite::cuda::math::add_bias(total_size, N, b_data, out_data, cuda_stream);
   }
 }
 
@@ -85,14 +96,21 @@ void SearchSeqFcCompute::Run() {
 }  // namespace lite
 }  // namespace paddle
 
-REGISTER_LITE_KERNEL(search_seq_fc,
-                     kCUDA,
-                     kFloat,
-                     kNCHW,
-                     paddle::lite::kernels::cuda::SearchSeqFcCompute,
-                     def)
+using SeqFCFp32 =
+    paddle::lite::kernels::cuda::SearchSeqFcCompute<float, PRECISION(kFloat)>;
+using SeqFCFp16 =
+    paddle::lite::kernels::cuda::SearchSeqFcCompute<half, PRECISION(kFP16)>;
+
+REGISTER_LITE_KERNEL(search_seq_fc, kCUDA, kFloat, kNCHW, SeqFCFp32, def)
     .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA))})
     .BindInput("W", {LiteType::GetTensorTy(TARGET(kCUDA))})
     .BindInput("b", {LiteType::GetTensorTy(TARGET(kCUDA))})
     .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA))})
+    .Finalize();
+
+REGISTER_LITE_KERNEL(search_seq_fc, kCUDA, kFP16, kNCHW, SeqFCFp16, def)
+    .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .BindInput("W", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFloat))})
+    .BindInput("b", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFloat))})
+    .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
     .Finalize();

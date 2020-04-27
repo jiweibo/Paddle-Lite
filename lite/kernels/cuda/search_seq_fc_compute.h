@@ -25,7 +25,8 @@ namespace lite {
 namespace kernels {
 namespace cuda {
 
-class SearchSeqFcCompute : public KernelLite<TARGET(kCUDA), PRECISION(kFloat)> {
+template <typename T, PrecisionType PType>
+class SearchSeqFcCompute : public KernelLite<TARGET(kCUDA), PType> {
  public:
   using param_t = operators::SearchSeqFcParam;
 
@@ -34,7 +35,10 @@ class SearchSeqFcCompute : public KernelLite<TARGET(kCUDA), PRECISION(kFloat)> {
   virtual ~SearchSeqFcCompute() = default;
 
  private:
-  std::unique_ptr<lite::cuda::math::Gemm<float, float>> gemm_impl_{nullptr};
+  std::unique_ptr<lite::cuda::math::Gemm<T, T>> gemm_impl_{nullptr};
+  const lite::Tensor* b_tensor_;
+  const lite::Tensor* w_tensor_;
+  lite::Tensor b_half_tensor_, w_half_tensor_;
 };
 
 }  // namespace cuda

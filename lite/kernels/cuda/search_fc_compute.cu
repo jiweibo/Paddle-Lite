@@ -10,6 +10,7 @@ See the License for the specific language governing permissions and
 limitations under the License. */
 
 #pragma once
+#include "lite/backends/cuda/math/bias.h"
 #include "lite/backends/cuda/math/type_trans.h"
 #include "lite/core/op_registry.h"
 #include "lite/kernels/cuda/search_fc_compute.h"
@@ -18,41 +19,6 @@ namespace paddle {
 namespace lite {
 namespace kernels {
 namespace cuda {
-
-template <typename T>
-__global__ void add_bias(int n, int output_size, const T* bias, T* dout) {
-  int index = blockIdx.x * blockDim.x + threadIdx.x;
-  int bias_index = index % output_size;
-  if (index < n) {
-    dout[index] = dout[index] + bias[bias_index];
-  }
-}
-
-template <>
-__global__ void add_bias<half>(int n,
-                               int output_size,
-                               const half* bias,
-                               half* dout) {
-  int index = blockIdx.x * blockDim.x + threadIdx.x;
-#if __CUDA_ARCH__ >= 530
-  int n2 = n / 2;
-  if (index < n2) {
-    half2* dout2 = reinterpret_cast<half2*>(dout);
-    half2 bias_data;
-    bias_data.x = bias[(2 * index) % output_size];
-    bias_data.y = bias[(2 * index + 1) % output_size];
-    dout2[index] = __hadd2(dout2[index], bias_data);
-  }
-  if (index == 0 && n % 2) {
-    dout[n - 1] = __hadd(dout[n - 1], bias[(n - 1) % output_size]);
-  }
-#else
-  if (index < n) {
-    dout[index] = __float2half(__half2float(dout[index]) +
-                               __half2float(bias[index % output_size]));
-  }
-#endif
-}
 
 template <>
 void SearchFcCompute<float, PRECISION(kFloat)>::PrepareForRun() {
@@ -102,8 +68,7 @@ void SearchFcCompute<T, PType>::Run() {
       __float2half(1.0f), __float2half(0.0f), din, weight, dout, &ctx);
 
   int total_size = _M * _N;
-  add_bias<T><<<CUDA_GET_BLOCKS(total_size), CUDA_NUM_THREADS, 0, stream>>>(
-      total_size, _N, bias, dout);
+  lite::cuda::math::add_bias(total_size, _N, bias, dout, stream);
 }
 
 }  // namespace cuda
