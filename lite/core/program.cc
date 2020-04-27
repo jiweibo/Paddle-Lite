@@ -159,6 +159,9 @@ void RuntimeProgram::Run() {
 #endif
 #endif  // LITE_WITH_PRECISION_PROFILE
   }
+#ifdef LITE_WITH_CUDA
+  TargetWrapperCuda::DeviceSync();
+#endif
 #ifdef LITE_WITH_PROFILE
   LOG(INFO) << "\n" << profiler_.Summary(profile::Type::kDispatch, false, 0);
 #endif
