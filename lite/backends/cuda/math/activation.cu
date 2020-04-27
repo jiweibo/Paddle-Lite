@@ -46,29 +46,13 @@ __global__ void relu_kernel<half>(const int num,
   if (index < num) {
     const half kZero = __float2half(0.0f);
 #if __CUDA_ARCH__ >= 530
-    output[index] =
-        __hgt(__ldg(input + index), kZero) ? __ldg(input + index) : kZero;
+    output[index] = __hgt(__ldg(input + index), kZero)
+                        ? __ldg(input + index)
+                        : __hmul(__ldg(input + index), __float2half(alpha));
 #else
-    output[index] = (__half2float(input[index]) > 0) ? input[index] : kZero;
-#endif
-  }
-}
-
-template <>
-__global__ void relu_kernel<half2>(const int num,
-                                   const float alpha,
-                                   const half2* input,
-                                   half2* output) {
-  int index = blockIdx.x * blockDim.x + threadIdx.x;
-  if (index < num) {
-#if __CUDA_ARCH__ >= 530
-    const half2 kZero = __float2half2_rn(0.0f);
-    output[index] =
-        __hmul2(__hgt2(__ldg(input + index), kZero), __ldg(input + index));
-#else
-    const float2 xx = __half22float2(input[index]);
-    output[index] =
-        __floats2half2_rn(xx.x > 0.f ? xx.x : 0.f, xx.y > 0.f ? xx.y : 0.f);
+    output[index] = (__half2float(input[index]) > 0)
+                        ? input[index]
+                        : __float2half(__half2float(input[index]) * alpha);
 #endif
   }
 }
@@ -461,19 +445,9 @@ void relu<half>(
   if (num == 0) {
     return;
   }
-  if (num % 2 == 0) {
-    int thread = 256;
-    int block = (num / 2 + thread - 1) / thread;
-    relu_kernel<half2><<<block, thread, 0, stream>>>(
-        num,
-        alpha,
-        reinterpret_cast<const half2*>(din),
-        reinterpret_cast<half2*>(dout));
-  } else {
-    int thread = 256;
-    int block = (num + thread - 1) / thread;
-    relu_kernel<half><<<block, thread, 0, stream>>>(num, alpha, din, dout);
-  }
+  int thread = 256;
+  int block = (num + thread - 1) / thread;
+  relu_kernel<half><<<block, thread, 0, stream>>>(num, alpha, din, dout);
   cudaError_t error = cudaGetLastError();
   if (error != cudaSuccess) std::cout << cudaGetErrorString(error);
 }
