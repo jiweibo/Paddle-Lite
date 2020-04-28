@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "lite/backends/cuda/math/activation.h"
 #include "lite/core/op_registry.h"
 #include "lite/kernels/cuda/relu_compute.h"
 
@@ -20,32 +21,35 @@ namespace lite {
 namespace kernels {
 namespace cuda {
 
-template <typename T>
-__global__ void ReluKernel(const int num, const T* input, T* output) {
-  int index = blockIdx.x * blockDim.x + threadIdx.x;
-  if (index < num) {
-#if __CUDA_ARCH__ >= 350
-    output[index] = __ldg(input + index) >= 0 ? __ldg(input + index) : 0;
-#else
-    output[index] = input[index] >= 0 ? input[index] : 0;
-#endif
-  }
-}
+// template <typename T>
+// __global__ void ReluKernel(const int num, const T* input, T* output) {
+//   int index = blockIdx.x * blockDim.x + threadIdx.x;
+//   if (index < num) {
+// #if __CUDA_ARCH__ >= 350
+//     output[index] = __ldg(input + index) >= 0 ? __ldg(input + index) : 0;
+// #else
+//     output[index] = input[index] >= 0 ? input[index] : 0;
+// #endif
+//   }
+// }
 
-void ReluCompute::Run() {
-  auto& param = this->Param<param_t>();
+template <typename T, PrecisionType PType>
+void ReluCompute<T, PType>::Run() {
+  auto& param = this->template Param<param_t>();
   auto& ctx = this->ctx_->template As<CUDAContext>();
   auto stream = ctx.exec_stream();
 
   int num = static_cast<int>(param.X->numel());
-  auto input = param.X->data<float>();
-  auto output = param.Out->mutable_data<float>(TARGET(kCUDA));
+  auto input = param.X->template data<T>();
+  auto output = param.Out->template mutable_data<T>(TARGET(kCUDA));
 
-  int threads = 1024;
-  int blocks = (num + threads - 1) / threads;
-  ReluKernel<<<blocks, threads, 0, stream>>>(num, input, output);
-  cudaError_t error = cudaGetLastError();
-  if (error != cudaSuccess) LOG(INFO) << cudaGetErrorString(error);
+  lite::cuda::math::relu(num, input, output, 0.f, stream);
+
+  // int threads = 1024;
+  // int blocks = (num + threads - 1) / threads;
+  // ReluKernel<<<blocks, threads, 0, stream>>>(num, input, output);
+  // cudaError_t error = cudaGetLastError();
+  // if (error != cudaSuccess) LOG(INFO) << cudaGetErrorString(error);
 }
 
 }  // namespace cuda
@@ -53,8 +57,17 @@ void ReluCompute::Run() {
 }  // namespace lite
 }  // namespace paddle
 
-REGISTER_LITE_KERNEL(
-    relu, kCUDA, kFloat, kNCHW, paddle::lite::kernels::cuda::ReluCompute, def)
+using ReLUFp32 =
+    paddle::lite::kernels::cuda::ReluCompute<float, PRECISION(kFloat)>;
+using ReLUFp16 =
+    paddle::lite::kernels::cuda::ReluCompute<half, PRECISION(kFP16)>;
+
+REGISTER_LITE_KERNEL(relu, kCUDA, kFloat, kNCHW, ReLUFp32, def)
     .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA))})
     .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA))})
+    .Finalize();
+
+REGISTER_LITE_KERNEL(relu, kCUDA, kFP16, kNCHW, ReLUFp16, def)
+    .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
     .Finalize();

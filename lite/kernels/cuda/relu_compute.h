@@ -20,7 +20,8 @@ namespace lite {
 namespace kernels {
 namespace cuda {
 
-class ReluCompute : public KernelLite<TARGET(kCUDA), PRECISION(kFloat)> {
+template <typename T, PrecisionType PType>
+class ReluCompute : public KernelLite<TARGET(kCUDA), PType> {
  public:
   using param_t = operators::ActivationParam;
 
