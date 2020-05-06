@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #pragma once
+#include "lite/backends/cuda/cuda_utils.h"
 #include "lite/core/kernel.h"
 
 namespace paddle {

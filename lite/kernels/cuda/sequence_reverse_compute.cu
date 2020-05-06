@@ -22,9 +22,7 @@ namespace kernels {
 namespace cuda {
 
 template <typename T>
-__host__ __device__ inline size_t UpperBound(const T* x,
-                                             size_t num,
-                                             const T& val) {
+__device__ inline size_t UpperBound(const T* x, size_t num, const T& val) {
   // The following code is from
   // https://en.cppreference.com/w/cpp/algorithm/upper_bound
   auto* first = x;
@@ -115,6 +113,10 @@ typedef paddle::lite::kernels::cuda::SequenceReverseCompute<float,
                                                             PRECISION(kFloat)>
     ReverseFp32;
 
+typedef paddle::lite::kernels::cuda::SequenceReverseCompute<half,
+                                                            PRECISION(kFP16)>
+    ReverseFp16;
+
 typedef paddle::lite::kernels::cuda::SequenceReverseCompute<int64_t,
                                                             PRECISION(kInt64)>
     ReverseInt64;
@@ -122,6 +124,11 @@ typedef paddle::lite::kernels::cuda::SequenceReverseCompute<int64_t,
 REGISTER_LITE_KERNEL(sequence_reverse, kCUDA, kFloat, kNCHW, ReverseFp32, def)
     .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA))})
     .BindOutput("Y", {LiteType::GetTensorTy(TARGET(kCUDA))})
+    .Finalize();
+
+REGISTER_LITE_KERNEL(sequence_reverse, kCUDA, kFP16, kNCHW, ReverseFp16, def)
+    .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .BindOutput("Y", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
     .Finalize();
 
 REGISTER_LITE_KERNEL(sequence_reverse, kCUDA, kInt64, kNCHW, ReverseInt64, def)

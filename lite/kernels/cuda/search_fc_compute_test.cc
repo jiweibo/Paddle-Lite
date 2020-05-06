@@ -144,8 +144,9 @@ TEST_F(SearchFCTest, TestFP16) {
   }
 
   auto start = GetCurrentUS();
+  search_fc_kernel.PrepareForRun();
   for (int i = 0; i < FLAGS_repeats; ++i) {
-    search_fc_kernel.Launch();
+    search_fc_kernel.Run();
   }
   cudaDeviceSynchronize();
   auto duration = (GetCurrentUS() - start) / 1000.0;
@@ -181,8 +182,9 @@ TEST_F(SearchFCTest, TestFP32) {
   }
 
   auto start = GetCurrentUS();
+  search_fc_kernel.PrepareForRun();
   for (int i = 0; i < FLAGS_repeats; ++i) {
-    search_fc_kernel.Launch();
+    search_fc_kernel.Run();
   }
   cudaDeviceSynchronize();
   auto duration = (GetCurrentUS() - start) / 1000.0;
