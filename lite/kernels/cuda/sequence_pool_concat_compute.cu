@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include <vector>
+
 #include "lite/backends/cuda/cuda_utils.h"
 #include "lite/core/op_registry.h"
 #include "lite/core/target_wrapper.h"
@@ -107,8 +108,9 @@ __global__ void sequence_pool_concat(const uint64_t* input_locate_data,
   }
 }
 
-void SequencePoolConcatCompute::PrepareForRun() {
-  auto& param = this->Param<param_t>();
+template <typename Dtype, PrecisionType Ptype>
+void SequencePoolConcatCompute<Dtype, Ptype>::PrepareForRun() {
+  auto& param = this->template Param<param_t>();
   auto& ctx = this->ctx_->template As<CUDAContext>();
   auto stream = ctx.exec_stream();
 
@@ -178,8 +180,9 @@ void SequencePoolConcatCompute::PrepareForRun() {
   cudaStreamSynchronize(stream);
 }
 
-void SequencePoolConcatCompute::Run() {
-  auto& param = this->Param<param_t>();
+template <typename Dtype, PrecisionType Ptype>
+void SequencePoolConcatCompute<Dtype, Ptype>::Run() {
+  auto& param = this->template Param<param_t>();
   auto& ctx = this->ctx_->template As<CUDAContext>();
   auto stream = ctx.exec_stream();
   auto& inputs = param.X;
@@ -206,7 +209,7 @@ void SequencePoolConcatCompute::Run() {
   std::vector<uint64_t> in_locate_vec;
   for (int i = 0; i < inputs.size(); ++i) {
     in_locate_vec.push_back(
-        reinterpret_cast<uintptr_t>(inputs[i]->data<float>()));
+        reinterpret_cast<uintptr_t>(inputs[i]->template data<Dtype>()));
   }
   uint64_t* in_locate_data =
       _in_ptr_tensor.mutable_data<uint64_t>(TARGET(kCUDA));
@@ -222,11 +225,11 @@ void SequencePoolConcatCompute::Run() {
   int count = param.Out->numel();
 
   int in_dim = inputs[0]->numel() / inputs[0]->dims()[0];
-  float* out_data = param.Out->mutable_data<float>(TARGET(kCUDA));
+  Dtype* out_data = param.Out->template mutable_data<Dtype>(TARGET(kCUDA));
   int in_num = inputs.size();
   if (_is_in_same_len) {
     sequence_pool_concat<
-        float><<<CUDA_GET_BLOCKS(count), CUDA_NUM_THREADS, 0, stream>>>(
+        Dtype><<<CUDA_GET_BLOCKS(count), CUDA_NUM_THREADS, 0, stream>>>(
         in_locate_data,
         in_pool_type_data,
         out_data,
@@ -237,7 +240,7 @@ void SequencePoolConcatCompute::Run() {
   } else {
     int out_dim = param.Out->numel() / param.Out->dims()[0];
     sequence_pool_concat<
-        float><<<CUDA_GET_BLOCKS(count), CUDA_NUM_THREADS, 0, stream>>>(
+        Dtype><<<CUDA_GET_BLOCKS(count), CUDA_NUM_THREADS, 0, stream>>>(
         in_locate_data,
         in_pool_type_data,
         out_data,
@@ -255,12 +258,20 @@ void SequencePoolConcatCompute::Run() {
 }  // namespace lite
 }  // namespace paddle
 
-REGISTER_LITE_KERNEL(sequence_pool_concat,
-                     kCUDA,
-                     kFloat,
-                     kNCHW,
-                     paddle::lite::kernels::cuda::SequencePoolConcatCompute,
-                     def)
+using SequencePoolConcatFp32 =
+    paddle::lite::kernels::cuda::SequencePoolConcatCompute<float,
+                                                           PRECISION(kFloat)>;
+using SequencePoolConcatFp16 =
+    paddle::lite::kernels::cuda::SequencePoolConcatCompute<half,
+                                                           PRECISION(kFP16)>;
+
+REGISTER_LITE_KERNEL(
+    sequence_pool_concat, kCUDA, kFloat, kNCHW, SequencePoolConcatFp32, def)
     .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA))})
     .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA))})
+    .Finalize();
+REGISTER_LITE_KERNEL(
+    sequence_pool_concat, kCUDA, kFP16, kNCHW, SequencePoolConcatFp16, def)
+    .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
     .Finalize();
