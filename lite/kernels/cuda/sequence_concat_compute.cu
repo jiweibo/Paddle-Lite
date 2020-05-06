@@ -63,8 +63,9 @@ __global__ void concat_impl_2d_impl(const int inner_size,
   }
 }
 
-void SequenceConcatCompute::Run() {
-  auto& param = this->Param<param_t>();
+template <typename T, PrecisionType PType>
+void SequenceConcatCompute<T, PType>::Run() {
+  auto& param = this->template Param<param_t>();
   auto& ctx = this->ctx_->template As<CUDAContext>();
   auto stream = ctx.exec_stream();
 
@@ -95,13 +96,13 @@ void SequenceConcatCompute::Run() {
   }
 
   param.Out->Resize(shape_out);
-  float* out_data = param.Out->mutable_data<float>(TARGET(kCUDA));
+  T* out_data = param.Out->template mutable_data<T>(TARGET(kCUDA));
   int offset_concat_axis = 0;
   const int out_concat_axis = shape_out[axis];
 
   for (int i = 0; i < input_size; ++i) {
     std::vector<int64_t> in_shape = param.X[i]->dims().Vectorize();
-    const auto* in_data = param.X[i]->data<float>();
+    const auto* in_data = param.X[i]->template data<T>();
     const int in_concat_axis = in_shape[axis];
     const int in_concat_size = in_concat_axis * concat_input_size;
     const int nthreads = in_concat_size * num_concats;
@@ -114,24 +115,23 @@ void SequenceConcatCompute::Run() {
       int grid_y = (num_concats + block_y - 1) / block_y;
       dim3 block(block_x, block_y);
       dim3 grid(grid_x, grid_y);
-      concat_impl_2d_impl<float><<<grid, block, 0, stream>>>(in_concat_size,
-                                                             num_concats,
-                                                             in_data,
-                                                             concat_input_size,
-                                                             out_concat_axis,
-                                                             offset_concat_axis,
-                                                             out_data);
+      concat_impl_2d_impl<T><<<grid, block, 0, stream>>>(in_concat_size,
+                                                         num_concats,
+                                                         in_data,
+                                                         concat_input_size,
+                                                         out_concat_axis,
+                                                         offset_concat_axis,
+                                                         out_data);
     } else {
       int grid = (nthreads + BLOCK_SIZE - 1) / BLOCK_SIZE;
-      concat_impl_cuda<float><<<grid, BLOCK_SIZE, 0, stream>>>(
-          nthreads,
-          in_data,
-          num_concats,
-          concat_input_size,
-          out_concat_axis,
-          in_concat_axis,
-          offset_concat_axis,
-          out_data);
+      concat_impl_cuda<T><<<grid, BLOCK_SIZE, 0, stream>>>(nthreads,
+                                                           in_data,
+                                                           num_concats,
+                                                           concat_input_size,
+                                                           out_concat_axis,
+                                                           in_concat_axis,
+                                                           offset_concat_axis,
+                                                           out_data);
     }
     offset_concat_axis += in_concat_axis;
   }
@@ -143,12 +143,19 @@ void SequenceConcatCompute::Run() {
 }  // namespace lite
 }  // namespace paddle
 
-REGISTER_LITE_KERNEL(sequence_concat,
-                     kCUDA,
-                     kFloat,
-                     kNCHW,
-                     paddle::lite::kernels::cuda::SequenceConcatCompute,
-                     def)
+using SequenceConcatFp32 =
+    paddle::lite::kernels::cuda::SequenceConcatCompute<float,
+                                                       PRECISION(kFloat)>;
+using SequenceConcatFp16 =
+    paddle::lite::kernels::cuda::SequenceConcatCompute<half, PRECISION(kFP16)>;
+
+REGISTER_LITE_KERNEL(
+    sequence_concat, kCUDA, kFloat, kNCHW, SequenceConcatFp32, def)
     .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA))})
     .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA))})
+    .Finalize();
+REGISTER_LITE_KERNEL(
+    sequence_concat, kCUDA, kFP16, kNCHW, SequenceConcatFp16, def)
+    .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
     .Finalize();
