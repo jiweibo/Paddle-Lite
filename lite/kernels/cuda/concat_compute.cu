@@ -11,6 +11,7 @@ limitations under the License. */
 
 #include <algorithm>
 #include <vector>
+
 #include "lite/core/op_registry.h"
 #include "lite/kernels/cuda/concat_compute.h"
 
@@ -41,9 +42,9 @@ __global__ void Concat(const int num,
   }
 }
 
-template <typename Dtype>
-void ConcatCompute<Dtype>::Run() {
-  auto& param = this->Param<param_t>();
+template <typename Dtype, PrecisionType Ptype>
+void ConcatCompute<Dtype, Ptype>::Run() {
+  auto& param = this->template Param<param_t>();
   auto& ctx = this->ctx_->template As<CUDAContext>();
   auto stream = ctx.exec_stream();
 
@@ -78,14 +79,14 @@ void ConcatCompute<Dtype>::Run() {
     int num = input_concat_size * outer_size;
     int threads = 1024;
     int blocks = (num + threads - 1) / threads;
-    Concat<<<blocks, threads, 0, stream>>>(num,
-                                           input_data,
-                                           outer_size,
-                                           inner_size,
-                                           all_concat_axis,
-                                           input_concat_axis,
-                                           offset_concat_axis,
-                                           output_data);
+    Concat<Dtype><<<blocks, threads, 0, stream>>>(num,
+                                                  input_data,
+                                                  outer_size,
+                                                  inner_size,
+                                                  all_concat_axis,
+                                                  input_concat_axis,
+                                                  offset_concat_axis,
+                                                  output_data);
     offset_concat_axis += input_concat_axis;
   }
 }
@@ -95,14 +96,21 @@ void ConcatCompute<Dtype>::Run() {
 }  // namespace lite
 }  // namespace paddle
 
-REGISTER_LITE_KERNEL(concat,
-                     kCUDA,
-                     kFloat,
-                     kNCHW,
-                     paddle::lite::kernels::cuda::ConcatCompute<float>,
-                     def)
+using ConcatFp32 =
+    paddle::lite::kernels::cuda::ConcatCompute<float, PRECISION(kFloat)>;
+using ConcatFp16 =
+    paddle::lite::kernels::cuda::ConcatCompute<half, PRECISION(kFP16)>;
+
+REGISTER_LITE_KERNEL(concat, kCUDA, kFloat, kNCHW, ConcatFp32, def)
     .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA))})
     .BindInput("AxisTensor",
                {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kInt32))})
     .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA))})
+    .Finalize();
+
+REGISTER_LITE_KERNEL(concat, kCUDA, kFP16, kNCHW, ConcatFp16, def)
+    .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .BindInput("AxisTensor",
+               {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kInt32))})
+    .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
     .Finalize();

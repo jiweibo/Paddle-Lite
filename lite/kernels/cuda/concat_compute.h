@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #pragma once
+#include "lite/backends/cuda/cuda_utils.h"
 #include "lite/core/kernel.h"
 
 namespace paddle {
@@ -20,9 +21,9 @@ namespace lite {
 namespace kernels {
 namespace cuda {
 
-template <typename Dtype>
+template <typename Dtype, PrecisionType Ptype>
 class ConcatCompute
-    : public KernelLite<TARGET(kCUDA), PRECISION(kFloat), DATALAYOUT(kNCHW)> {
+    : public KernelLite<TARGET(kCUDA), Ptype, DATALAYOUT(kNCHW)> {
  public:
   using param_t = operators::ConcatParam;
 

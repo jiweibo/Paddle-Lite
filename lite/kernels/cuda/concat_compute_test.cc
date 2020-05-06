@@ -13,214 +13,211 @@
 // limitations under the License.
 
 #include "lite/kernels/cuda/concat_compute.h"
+
 #include <gtest/gtest.h>
+
 #include <limits>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "lite/api/test_helper.h"
+#include "lite/backends/cuda/float16.h"
+
 namespace paddle {
 namespace lite {
 namespace kernels {
 namespace cuda {
 
-bool infer_shape(const operators::ConcatParam& param) {
-  std::vector<lite::DDim> input_dims;
-  for (auto p : param.x) {
-    input_dims.push_back(p->dims());
+class ConcatTest : public ::testing::Test {
+ protected:
+  ConcatTest() : n(4), c1(3), c2(4), c3(5), h(38), w(38) {
+    x1_ref.Resize({n, c1, h, w});
+    x2_ref.Resize({n, c2, h, w});
+    x3_ref.Resize({n, c3, h, w});
+    y_ref.Resize({n, c1 + c2 + c3, h, w});
+    x1_gpu.Resize(x1_ref.dims());
+    x2_gpu.Resize(x2_ref.dims());
+    x3_gpu.Resize(x3_ref.dims());
+    y_gpu.Resize({n, c1 + c2 + c3, h, w});
+
+    auto x1_ref_data = x1_ref.mutable_data<float>();
+    auto x2_ref_data = x2_ref.mutable_data<float>();
+    auto x3_ref_data = x3_ref.mutable_data<float>();
+
+    // prepare input
+    for (int64_t i = 0; i < x1_ref.numel(); i++) {
+      x1_ref_data[i] = static_cast<float>(i % 10 * 0.2);
+    }
+    for (int64_t i = 0; i < x2_ref.numel(); i++) {
+      x2_ref_data[i] = static_cast<float>(i % 10 * 0.2);
+    }
+    for (int64_t i = 0; i < x3_ref.numel(); i++) {
+      x3_ref_data[i] = static_cast<float>(i % 10 * 0.2);
+    }
+
+    cpu_base(std::vector<lite::Tensor*>({&x1_ref, &x2_ref, &x3_ref}), &y_ref);
+    device_init();
   }
-  size_t axis = static_cast<size_t>(param.axis);
-  const size_t n = input_dims.size();
-  CHECK_GT_OR_FALSE(n, 0);
-  auto& out_dims = input_dims[0];
-  size_t in_zero_dims_size = out_dims.size();
-  for (size_t i = 1; i < n; i++) {
-    for (size_t j = 0; j < in_zero_dims_size; j++) {
-      if (j == axis) {
-        out_dims[axis] += input_dims[i][j];
-      } else {
-        CHECK_EQ_OR_FALSE(out_dims[j], input_dims[i][j]);
+
+  void device_init() {
+    ctx.reset(new KernelContext);
+    cudaStreamCreate(&stream);
+    param.x = std::vector<lite::Tensor*>({&x1_gpu, &x2_gpu, &x3_gpu});
+    param.axis = 1;
+    param.output = &y_gpu;
+  }
+
+  void float_data_init() {
+    x1_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(x1_ref.data<float>(),
+                                                    x1_gpu.dims());
+    x2_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(x2_ref.data<float>(),
+                                                    x2_gpu.dims());
+    x3_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(x3_ref.data<float>(),
+                                                    x3_gpu.dims());
+  }
+
+  void half_data_init() {
+    x1_half.Resize(x1_ref.dims());
+    x2_half.Resize(x2_ref.dims());
+    x3_half.Resize(x3_ref.dims());
+    auto x1_half_data = x1_half.mutable_data<half>();
+    auto x2_half_data = x2_half.mutable_data<half>();
+    auto x3_half_data = x3_half.mutable_data<half>();
+    for (int64_t i = 0; i < x1_half.numel(); i++) {
+      x1_half_data[i] = half(lite::cuda::float16(x1_ref.data<float>()[i]));
+    }
+    for (int64_t i = 0; i < x2_half.numel(); i++) {
+      x2_half_data[i] = half(lite::cuda::float16(x2_ref.data<float>()[i]));
+    }
+    for (int64_t i = 0; i < x3_half.numel(); i++) {
+      x3_half_data[i] = half(lite::cuda::float16(x3_ref.data<float>()[i]));
+    }
+    x1_gpu.Assign<__half, lite::DDim, TARGET(kCUDA)>(x1_half_data,
+                                                     x1_gpu.dims());
+    x2_gpu.Assign<__half, lite::DDim, TARGET(kCUDA)>(x2_half_data,
+                                                     x2_gpu.dims());
+    x3_gpu.Assign<__half, lite::DDim, TARGET(kCUDA)>(x3_half_data,
+                                                     x3_gpu.dims());
+  }
+
+  void cpu_base(const std::vector<lite::Tensor*>& input,
+                lite::Tensor* output,
+                const int axis = 1) {
+    int num = input.size();
+    int rows = 1;
+    auto dim_0 = input[0]->dims();
+    for (int i = 0; i < axis; ++i) {
+      rows *= dim_0[i];
+    }
+    int out_rows = rows, out_cols = 0;
+
+    std::vector<int> input_cols(num, 0);
+    for (int i = 0; i < num; ++i) {
+      int input_i_numel = input[i]->numel();
+      int t_cols = input_i_numel / rows;
+      out_cols += t_cols;
+      input_cols[i] = t_cols;
+    }
+
+    auto output_data = output->mutable_data<float>();
+    int col_idx = 0;
+    for (int j = 0; j < num; ++j) {
+      int col_len = input_cols[j];
+      auto input_data = input[j]->data<float>();
+      for (int k = 0; k < out_rows; ++k) {
+        memcpy(output_data + k * out_cols + col_idx,
+               input_data + k * col_len,
+               sizeof(float) * col_len);
       }
+      col_idx += col_len;
     }
   }
-  if (out_dims[axis] < 0) {
-    out_dims[axis] = -1;
-  }
-  // Set output dims
-  param.output->Resize(lite::DDim(out_dims));
-  return true;
-}
 
-void concat_compute_ref(const operators::ConcatParam& param) {
-  std::vector<lite::Tensor*> input = param.x;
-  int axis = param.axis;
-  infer_shape(param);
-
-  lite::Tensor* output = param.output;
-  int num = input.size();
-  int rows = 1;
-  auto dim_0 = input[0]->dims();
-  for (int i = 0; i < axis; ++i) {
-    rows *= dim_0[i];
-  }
-  int out_rows = rows, out_cols = 0;
-
-  std::vector<int> input_cols(input.size());
-  for (int i = 0; i < num; ++i) {
-    int input_i_numel = input[i]->dims().size() == 0 ? 0 : 1;
-    for (int didx = 0; didx < input[i]->dims().size(); ++didx) {
-      input_i_numel *= input[i]->dims()[didx];
-    }
-    int t_cols = input_i_numel / rows;
-    out_cols += t_cols;
-    input_cols[i] = t_cols;
-  }
-
-  auto output_data = output->mutable_data<float>();
-  int col_idx = 0;
-  for (int j = 0; j < num; ++j) {
-    int col_len = input_cols[j];
-    auto input_data = input[j]->data<float>();
-    for (int k = 0; k < out_rows; ++k) {
-      memcpy(output_data + k * out_cols + col_idx,
-             input_data + k * col_len,
-             sizeof(float) * col_len);
-    }
-    col_idx += col_len;
-  }
-}
-
-TEST(concat, init) {
-  ConcatCompute<float> concat;
-  ASSERT_EQ(concat.precision(), PRECISION(kFloat));
-  ASSERT_EQ(concat.target(), TARGET(kCUDA));
-}
-
-TEST(concat, compute_input_multi) {
-  ConcatCompute<float> concat_kernel;
-  std::unique_ptr<KernelContext> ctx(new KernelContext);
-  auto& context = ctx->As<CUDAContext>();
+  int n, c1, c2, c3, h, w;
+  lite::Tensor x1_ref, x2_ref, x3_ref, y_ref;
+  lite::Tensor x1_gpu, x2_gpu, x3_gpu, y_gpu;
+  lite::Tensor x1_half, x2_half, x3_half;
+  lite::Tensor y_cpu;
 
   operators::ConcatParam param;
-  operators::ConcatParam param_ref;
+  std::unique_ptr<KernelContext> ctx;
+  cudaStream_t stream;
+};
 
-  LOG(INFO) << "test concat start";
-  // init param
-  std::vector<lite::Tensor*> x;
-  std::vector<lite::Tensor*> x_cpu;
-  std::vector<lite::Tensor*> x_ref;
-  lite::Tensor out;
-  lite::Tensor out_cpu;
-  lite::Tensor out_ref;
-  lite::Tensor tensorA;
-  lite::Tensor tensorB;
-  lite::Tensor tensorC;
-  lite::Tensor tensorD;
-  lite::Tensor tensorA_cpu;
-  lite::Tensor tensorB_cpu;
-  lite::Tensor tensorC_cpu;
-  lite::Tensor tensorD_cpu;
-  lite::Tensor tensorA_ref;
-  lite::Tensor tensorB_ref;
-  lite::Tensor tensorC_ref;
-  lite::Tensor tensorD_ref;
+TEST_F(ConcatTest, TestFP32) {
+  float_data_init();
+  auto& context = ctx->As<CUDAContext>();
+  context.SetExecStream(stream);
+  ConcatCompute<float, PRECISION(kFloat)> concat_kernel;
+  concat_kernel.SetParam(param);
+  concat_kernel.SetContext(std::move(ctx));
 
-  DDimLite ddimA({1, 3, 38, 38});
-  DDimLite ddimB({1, 4, 38, 38});
-  DDimLite ddimC({1, 5, 38, 38});
-  DDimLite ddimD({1, 6, 38, 38});
-
-  tensorA.Resize(ddimA);
-  tensorB.Resize(ddimB);
-  tensorC.Resize(ddimC);
-  tensorD.Resize(ddimD);
-  tensorA_cpu.Resize(ddimA);
-  tensorB_cpu.Resize(ddimB);
-  tensorC_cpu.Resize(ddimC);
-  tensorD_cpu.Resize(ddimD);
-  tensorA_ref.Resize(ddimA);
-  tensorB_ref.Resize(ddimB);
-  tensorC_ref.Resize(ddimC);
-  tensorD_ref.Resize(ddimD);
-
-  out.Resize({1, 18, 38, 38});
-  out_cpu.Resize({1, 18, 38, 38});
-  out_ref.Resize({1, 18, 38, 38});
-  auto* out_data = out.mutable_data<float>(TARGET(kCUDA));
-  auto* out_cpu_data = out_cpu.mutable_data<float>();
-  auto* out_ref_data = out_ref.mutable_data<float>();
-  for (int i = 0; i < tensorA_cpu.numel(); i++) {
-    tensorA_cpu.mutable_data<float>()[i] = i;
-    tensorA_ref.mutable_data<float>()[i] = i;
-  }
-  for (int i = 0; i < tensorB_cpu.numel(); i++) {
-    tensorB_cpu.mutable_data<float>()[i] = i + 3;
-    tensorB_ref.mutable_data<float>()[i] = i + 3;
-  }
-  for (int i = 0; i < tensorC_cpu.numel(); i++) {
-    tensorC_cpu.mutable_data<float>()[i] = i + 6;
-    tensorC_ref.mutable_data<float>()[i] = i + 6;
-  }
-  for (int i = 0; i < tensorD_cpu.numel(); i++) {
-    tensorD_cpu.mutable_data<float>()[i] = i + 9;
-    tensorD_ref.mutable_data<float>()[i] = i + 9;
-  }
-  tensorA.Assign<float, lite::DDim, TARGET(kCUDA)>(
-      tensorA_cpu.mutable_data<float>(), tensorA_cpu.dims());
-  tensorB.Assign<float, lite::DDim, TARGET(kCUDA)>(
-      tensorB_cpu.mutable_data<float>(), tensorB_cpu.dims());
-  tensorC.Assign<float, lite::DDim, TARGET(kCUDA)>(
-      tensorC_cpu.mutable_data<float>(), tensorC_cpu.dims());
-  tensorD.Assign<float, lite::DDim, TARGET(kCUDA)>(
-      tensorD_cpu.mutable_data<float>(), tensorD_cpu.dims());
-
-  x.push_back(&tensorA);
-  x.push_back(&tensorB);
-  x.push_back(&tensorC);
-  x.push_back(&tensorD);
-  x_cpu.push_back(&tensorA_cpu);
-  x_cpu.push_back(&tensorB_cpu);
-  x_cpu.push_back(&tensorC_cpu);
-  x_cpu.push_back(&tensorD_cpu);
-  x_ref.push_back(&tensorA_ref);
-  x_ref.push_back(&tensorB_ref);
-  x_ref.push_back(&tensorC_ref);
-  x_ref.push_back(&tensorD_ref);
-
-  for (int cur_axis : {1}) {
-    param.x = x;
-    param.axis = cur_axis;
-    param.output = &out;
-
-    concat_kernel.SetParam(param);
-    LOG(INFO) << "test concat start cur_axis:" << cur_axis;
-
-    cudaStream_t stream;
-    cudaStreamCreate(&stream);
-    context.SetExecStream(stream);
-
-    concat_kernel.SetContext(std::move(ctx));
+  for (int i = 0; i < FLAGS_warmup; ++i) {
     concat_kernel.Launch();
     cudaDeviceSynchronize();
-    LOG(INFO) << "sync end";
-    CHECK(cudaSuccess == cudaMemcpy(out_cpu_data,
-                                    out_data,
-                                    sizeof(float) * out.numel(),
-                                    cudaMemcpyDeviceToHost));
-    LOG(INFO) << "concat.Run end";
+  }
 
-    param_ref.x = x_ref;
-    param_ref.axis = cur_axis;
-    param_ref.output = &out_ref;
+  auto start = GetCurrentUS();
+  concat_kernel.PrepareForRun();
+  for (int i = 0; i < FLAGS_repeats; ++i) {
+    concat_kernel.Run();
+  }
+  cudaDeviceSynchronize();
+  auto duration = (GetCurrentUS() - start) / 1000.0;
+  LOG(INFO) << "fp32, warmup: " << FLAGS_warmup
+            << ", repeats: " << FLAGS_repeats << ", spend "
+            << duration / FLAGS_repeats << " ms in average.";
+  y_cpu.Resize(y_gpu.dims());
+  y_cpu.set_lod(y_gpu.lod());
+  CopySync<TARGET(kCUDA)>(y_cpu.mutable_data<float>(),
+                          y_gpu.data<float>(),
+                          sizeof(float) * y_gpu.numel(),
+                          IoDirection::DtoH);
 
-    LOG(INFO) << "concat_compute_ref start";
-    concat_compute_ref(param_ref);
-    LOG(INFO) << "concat_compute_ref end";
+  for (int i = 0; i < y_gpu.numel(); ++i) {
+    EXPECT_NEAR(y_cpu.data<float>()[i], y_ref.data<float>()[i], 5e-4);
+  }
+}
 
-    for (int i = 0; i < out_ref.numel(); i++) {
-      EXPECT_NEAR(out_cpu_data[i], out_ref_data[i], 1e-5);
-    }
+TEST_F(ConcatTest, TestFP16) {
+  half_data_init();
+  auto& context = ctx->As<CUDAContext>();
+  context.SetExecStream(stream);
+  ConcatCompute<__half, PRECISION(kFP16)> concat_kernel;
+  concat_kernel.SetParam(param);
+  concat_kernel.SetContext(std::move(ctx));
+
+  for (int i = 0; i < FLAGS_warmup; ++i) {
+    concat_kernel.Launch();
+    cudaDeviceSynchronize();
+  }
+
+  auto start = GetCurrentUS();
+  concat_kernel.PrepareForRun();
+  for (int i = 0; i < FLAGS_repeats; ++i) {
+    concat_kernel.Run();
+  }
+  cudaDeviceSynchronize();
+  auto duration = (GetCurrentUS() - start) / 1000.0;
+  LOG(INFO) << "fp16, warmup: " << FLAGS_warmup
+            << ", repeats: " << FLAGS_repeats << ", spend "
+            << duration / FLAGS_repeats << " ms in average.";
+
+  y_cpu.Resize(y_gpu.dims());
+  y_cpu.set_lod(y_gpu.lod());
+  const __half* y_gpu_data = y_gpu.data<__half>();
+  __half* y_cpu_data = y_cpu.mutable_data<__half>();
+  CopySync<TARGET(kCUDA)>(y_cpu_data,
+                          y_gpu_data,
+                          sizeof(__half) * y_gpu.numel(),
+                          IoDirection::DtoH);
+
+  for (int i = 0; i < y_cpu.numel(); ++i) {
+    float res = static_cast<float>(lite::cuda::float16(y_cpu_data[i]));
+    float ref = y_ref.data<float>()[i];
+    EXPECT_NEAR(fabs(res - ref) / (ref + 1e-5), 0., 1e-3);
   }
 }
 
