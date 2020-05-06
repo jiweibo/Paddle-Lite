@@ -53,6 +53,8 @@ class SequenceReverseTest : public ::testing::Test {
   void device_init() {
     ctx.reset(new KernelContext);
     cudaStreamCreate(&stream);
+    auto& context = ctx->As<CUDAContext>();
+    context.SetExecStream(stream);
     param.X = &x_gpu;
     param.Out = &y_gpu;
   }
@@ -105,8 +107,6 @@ class SequenceReverseTest : public ::testing::Test {
 
 TEST_F(SequenceReverseTest, TestFP32) {
   float_data_init();
-  auto& context = ctx->As<CUDAContext>();
-  context.SetExecStream(stream);
   SequenceReverseCompute<float, PRECISION(kFloat)> seq_kernel;
   seq_kernel.SetParam(param);
   seq_kernel.SetContext(std::move(ctx));
@@ -140,8 +140,6 @@ TEST_F(SequenceReverseTest, TestFP32) {
 
 TEST_F(SequenceReverseTest, TestFP16) {
   half_data_init();
-  auto& context = ctx->As<CUDAContext>();
-  context.SetExecStream(stream);
   SequenceReverseCompute<__half, PRECISION(kFP16)> seq_kernel;
   seq_kernel.SetParam(param);
   seq_kernel.SetContext(std::move(ctx));

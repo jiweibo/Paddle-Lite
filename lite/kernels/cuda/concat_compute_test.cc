@@ -64,6 +64,8 @@ class ConcatTest : public ::testing::Test {
   void device_init() {
     ctx.reset(new KernelContext);
     cudaStreamCreate(&stream);
+    auto& context = ctx->As<CUDAContext>();
+    context.SetExecStream(stream);
     param.x = std::vector<lite::Tensor*>({&x1_gpu, &x2_gpu, &x3_gpu});
     param.axis = 1;
     param.output = &y_gpu;
@@ -148,8 +150,6 @@ class ConcatTest : public ::testing::Test {
 
 TEST_F(ConcatTest, TestFP32) {
   float_data_init();
-  auto& context = ctx->As<CUDAContext>();
-  context.SetExecStream(stream);
   ConcatCompute<float, PRECISION(kFloat)> concat_kernel;
   concat_kernel.SetParam(param);
   concat_kernel.SetContext(std::move(ctx));
@@ -183,8 +183,6 @@ TEST_F(ConcatTest, TestFP32) {
 
 TEST_F(ConcatTest, TestFP16) {
   half_data_init();
-  auto& context = ctx->As<CUDAContext>();
-  context.SetExecStream(stream);
   ConcatCompute<__half, PRECISION(kFP16)> concat_kernel;
   concat_kernel.SetParam(param);
   concat_kernel.SetContext(std::move(ctx));
