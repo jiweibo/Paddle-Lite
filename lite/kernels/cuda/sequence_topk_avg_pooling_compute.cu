@@ -12,6 +12,7 @@ limitations under the License. */
 #pragma once
 #include <limits>
 #include <vector>
+
 #include "lite/core/op_registry.h"
 #include "lite/kernels/cuda/sequence_topk_avg_pooling_compute.h"
 
@@ -89,6 +90,81 @@ __global__ void topk_avg_pooling_kernel_by_row_improve(
     // compute avg
     for (int i = 0; i < topk_size; i++) {
       fm_row_out_data[i] = fm_row_out_data[i] / topks[i];
+    }
+  }
+}
+
+// naive float16 implementation, just to remove the calib op between different
+// precision
+template <>
+__global__ void topk_avg_pooling_kernel_by_row_improve(
+    half *output_data,
+    const half *input,
+    const int *gpu_input_offset_l,
+    const int *gpu_input_offset_r,
+    const int row_max,
+    const int col_max,
+    const int topk_size,
+    const int *topks,
+    const int feat_map_num) {
+  int row =
+      gpu_input_offset_l[blockIdx.x + 1] - gpu_input_offset_l[blockIdx.x];  // 8
+  int col = gpu_input_offset_r[blockIdx.x + 1] -
+            gpu_input_offset_r[blockIdx.x];  // 30
+
+  int max_k = topks[topk_size - 1];
+  max_k = max_k < col ? max_k : col;
+
+  extern __shared__ float smem[];  // H*W
+
+  const half *fm_row_in_data = input +
+                               blockIdx.x * row_max * feat_map_num * col_max +
+                               blockIdx.y * row_max * col_max;
+
+  for (int i = threadIdx.x; i < row * col_max; i += blockDim.x) {
+    smem[i] = static_cast<float>(fm_row_in_data[i]);
+  }
+  __syncthreads();
+
+  for (int idx = threadIdx.x; idx < row; idx += blockDim.x) {
+    half *fm_row_out_data =
+        output_data +
+        (gpu_input_offset_l[blockIdx.x] + idx) * feat_map_num * topk_size +
+        blockIdx.y * topk_size;
+
+    float *smem_start_col = smem + idx * col_max;
+
+    int counter = max_k;  // topk_size;
+    float last_max_val = -20000.0;
+    while (counter) {
+      float max_val = -10000.0;
+      int max_pos = 0;  // -1;
+      int m = 0;
+      for (; m < col; m++) {
+        float cur_data = smem_start_col[m];
+        if (cur_data > max_val) {
+          max_val = cur_data;
+          max_pos = m;
+          last_max_val = max_val;
+        }
+      }
+      if (max_val < -9999.0f) {  // == -10000.0
+        max_val = last_max_val;
+      }
+      smem_start_col[max_pos] = -10000000.0;
+
+      int i = max_k - counter;
+      for (int c = 0; c < topk_size; c++) {
+        if (i <= topks[c] - 1) {
+          fm_row_out_data[c] += __float2half(max_val);
+        }
+      }
+      counter--;
+    }
+    __syncthreads();
+    // compute avg
+    for (int i = 0; i < topk_size; i++) {
+      fm_row_out_data[i] = __hdiv(fm_row_out_data[i], __int2half_rn(topks[i]));
     }
   }
 }
@@ -189,8 +265,106 @@ __global__ void topk_avg_pooling_kernel_for_big_data(
   }
 }
 
-template <typename T>
-void SequenceTopkAvgPoolingCompute<T>::PrepareForRun() {
+// naive float16 implementation, just to remove the calib op between different
+// precision
+template <>
+__global__ void topk_avg_pooling_kernel_for_big_data(
+    half *output_data,
+    const half *input_data,
+    const int *gpu_input_offset_l,
+    const int *gpu_input_offset_r,
+    const int row_max,
+    const int col_max,
+    const int topk_size,
+    const int *topks,
+    const int feat_map_num,
+    const int actual_row_in_shared_mem) {
+  int row = gpu_input_offset_l[blockIdx.x + 1] -
+            gpu_input_offset_l[blockIdx.x];  // 75
+  int col = gpu_input_offset_r[blockIdx.x + 1] -
+            gpu_input_offset_r[blockIdx.x];  // 300
+
+  int max_k = topks[topk_size - 1];
+  max_k = max_k < col ? max_k : col;
+
+  extern __shared__ float smem[];  // H1*W or H2*W ...
+
+  int filled_z = row / actual_row_in_shared_mem;
+  int remain_row = row - filled_z * actual_row_in_shared_mem;
+
+  if (blockIdx.z > filled_z || (blockIdx.z == filled_z && remain_row == 0)) {
+    return;
+  }
+
+  const half *fm_row_in_data = input_data +
+                               blockIdx.x * row_max * feat_map_num * col_max +
+                               blockIdx.y * row_max * col_max +
+                               blockIdx.z * actual_row_in_shared_mem * col_max;
+  if (blockIdx.z == filled_z) {
+    for (int i = threadIdx.x; i < remain_row * col_max; i += blockDim.x) {
+      smem[i] = static_cast<float>(fm_row_in_data[i]);
+    }
+  } else {
+    for (int i = threadIdx.x; i < actual_row_in_shared_mem * col_max;
+         i += blockDim.x) {
+      smem[i] = static_cast<float>(fm_row_in_data[i]);
+    }
+  }
+  __syncthreads();
+
+  int cur_row;
+  if (blockIdx.z == filled_z) {
+    cur_row = remain_row;
+  } else {
+    cur_row = actual_row_in_shared_mem;
+  }
+
+  for (int idx = threadIdx.x; idx < cur_row; idx += blockDim.x) {
+    half *fm_row_out_data = output_data +
+                            (gpu_input_offset_l[blockIdx.x] +
+                             blockIdx.z * actual_row_in_shared_mem + idx) *
+                                feat_map_num * topk_size +
+                            blockIdx.y * topk_size;
+
+    float *smem_start_col = smem + idx * col_max;
+
+    int counter = max_k;  // topk_size;
+    float last_max_val = -20000.0;
+    while (counter) {
+      float max_val = -10000.0;
+      int max_pos = 0;  // -1;
+      int m = 0;
+      for (; m < col; m++) {
+        float cur_data = smem_start_col[m];
+        if (cur_data > max_val) {
+          max_val = cur_data;
+          max_pos = m;
+          last_max_val = max_val;
+        }
+      }
+      if (max_val < -9999.0) {  // == -10000.0
+        max_val = last_max_val;
+      }
+      smem_start_col[max_pos] = -10000000.0;
+
+      int i = max_k - counter;
+      for (int c = 0; c < topk_size; c++) {
+        if (i <= topks[c] - 1) {
+          fm_row_out_data[c] += max_val;
+        }
+      }
+      counter--;
+    }
+    __syncthreads();
+    // compute avg
+    for (int i = 0; i < topk_size; i++) {
+      fm_row_out_data[i] = __hdiv(fm_row_out_data[i], __int2half_rn(topks[i]));
+    }
+  }
+}
+
+template <typename T, PrecisionType Ptype>
+void SequenceTopkAvgPoolingCompute<T, Ptype>::PrepareForRun() {
   int device_id;
   cudaGetDevice(&device_id);
   cudaDeviceProp deviceProp;
@@ -198,9 +372,9 @@ void SequenceTopkAvgPoolingCompute<T>::PrepareForRun() {
   _shared_mem_size = deviceProp.sharedMemPerBlock;
 }
 
-template <typename T>
-void SequenceTopkAvgPoolingCompute<T>::Run() {
-  auto &param = this->Param<param_t>();
+template <typename T, PrecisionType Ptype>
+void SequenceTopkAvgPoolingCompute<T, Ptype>::Run() {
+  auto &param = this->template Param<param_t>();
   auto &ctx = this->ctx_->template As<CUDAContext>();
   auto cuda_stream = ctx.exec_stream();
 
@@ -260,13 +434,14 @@ void SequenceTopkAvgPoolingCompute<T>::Run() {
   const int *width_offset = _width_offset.data<int>();
 
   int feat_map_size = height * width;
-
-  if (feat_map_size * sizeof(T) <= _shared_mem_size) {
+  // cuda shared memory does not support template form, so we explicitly
+  // initialize with float
+  if (feat_map_size * sizeof(float) <= _shared_mem_size) {
     dim3 blocks(num, channel);
     dim3 threads(32, 1);
 
     topk_avg_pooling_kernel_by_row_improve<
-        T><<<blocks, threads, feat_map_size * sizeof(T), cuda_stream>>>(
+        T><<<blocks, threads, feat_map_size * sizeof(float), cuda_stream>>>(
         out_data,
         in_data,
         height_offset,
@@ -277,23 +452,25 @@ void SequenceTopkAvgPoolingCompute<T>::Run() {
         _top_ks.data<int>(),
         param.channel_num);
   } else {
-    int actual_row = _shared_mem_size / width / sizeof(T);
+    int actual_row = _shared_mem_size / width / sizeof(float);
     int num_z = (height + actual_row - 1) / actual_row;
     dim3 blocks(num, channel, num_z);
     dim3 threads(32, 1);
 
     topk_avg_pooling_kernel_for_big_data<
-        T><<<blocks, threads, actual_row * width * sizeof(T), cuda_stream>>>(
-        out_data,
-        in_data,
-        height_offset,
-        width_offset,
-        height,
-        width,
-        param.topks.size(),
-        _top_ks.data<int>(),
-        param.channel_num,
-        actual_row);
+        T><<<blocks,
+             threads,
+             actual_row * width * sizeof(float),
+             cuda_stream>>>(out_data,
+                            in_data,
+                            height_offset,
+                            width_offset,
+                            height,
+                            width,
+                            param.topks.size(),
+                            _top_ks.data<int>(),
+                            param.channel_num,
+                            actual_row);
   }
 }
 
@@ -302,13 +479,13 @@ void SequenceTopkAvgPoolingCompute<T>::Run() {
 }  // namespace lite
 }  // namespace paddle
 
+using StapFp32 = paddle::lite::kernels::cuda::
+    SequenceTopkAvgPoolingCompute<float, PRECISION(kFloat)>;
+using StapFp16 = paddle::lite::kernels::cuda::
+    SequenceTopkAvgPoolingCompute<half, PRECISION(kFP16)>;
+
 REGISTER_LITE_KERNEL(
-    sequence_topk_avg_pooling,
-    kCUDA,
-    kFloat,
-    kNCHW,
-    paddle::lite::kernels::cuda::SequenceTopkAvgPoolingCompute<float>,
-    def)
+    sequence_topk_avg_pooling, kCUDA, kFloat, kNCHW, StapFp32, def)
     .BindInput("X",
                {LiteType::GetTensorTy(TARGET(kCUDA),
                                       PRECISION(kFloat),
@@ -328,5 +505,29 @@ REGISTER_LITE_KERNEL(
     .BindOutput("pos",
                 {LiteType::GetTensorTy(TARGET(kCUDA),
                                        PRECISION(kFloat),
+                                       DATALAYOUT(kNCHW))})
+    .Finalize();
+
+REGISTER_LITE_KERNEL(
+    sequence_topk_avg_pooling, kCUDA, kFP16, kNCHW, StapFp16, def)
+    .BindInput("X",
+               {LiteType::GetTensorTy(TARGET(kCUDA),
+                                      PRECISION(kFP16),
+                                      DATALAYOUT(kNCHW))})
+    .BindInput("ROW",
+               {LiteType::GetTensorTy(TARGET(kCUDA),
+                                      PRECISION(kFP16),
+                                      DATALAYOUT(kNCHW))})
+    .BindInput("COLUMN",
+               {LiteType::GetTensorTy(TARGET(kCUDA),
+                                      PRECISION(kFP16),
+                                      DATALAYOUT(kNCHW))})
+    .BindOutput("Out",
+                {LiteType::GetTensorTy(TARGET(kCUDA),
+                                       PRECISION(kFP16),
+                                       DATALAYOUT(kNCHW))})
+    .BindOutput("pos",
+                {LiteType::GetTensorTy(TARGET(kCUDA),
+                                       PRECISION(kFP16),
                                        DATALAYOUT(kNCHW))})
     .Finalize();
