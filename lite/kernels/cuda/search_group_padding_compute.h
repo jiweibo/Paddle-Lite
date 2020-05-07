@@ -20,8 +20,8 @@ namespace lite {
 namespace kernels {
 namespace cuda {
 
-class SearchGroupPaddingCompute
-    : public KernelLite<TARGET(kCUDA), PRECISION(kFloat)> {
+template <typename Dtype, PrecisionType Ptype>
+class SearchGroupPaddingCompute : public KernelLite<TARGET(kCUDA), Ptype> {
  public:
   using param_t = operators::SearchGroupPaddingParam;
 
