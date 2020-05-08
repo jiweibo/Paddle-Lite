@@ -11,6 +11,7 @@ limitations under the License. */
 
 #pragma once
 #include <vector>
+#include "lite/backends/cuda/cuda_utils.h"
 #include "lite/core/op_registry.h"
 #include "lite/kernels/cuda/search_seq_depadding_compute.h"
 
@@ -19,10 +20,6 @@ namespace lite {
 namespace kernels {
 namespace cuda {
 using Tensor = lite::Tensor;
-
-#define CUDA_KERNEL_LOOP(i, n)                                 \
-  for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < (n); \
-       i += blockDim.x * gridDim.x)
 
 template <typename Dtype>
 __global__ void ker_sequence_depadding_fwd(Dtype* out_data,
@@ -40,8 +37,9 @@ __global__ void ker_sequence_depadding_fwd(Dtype* out_data,
   }
 }
 
-void SearchSeqDepaddingCompute::Run() {
-  auto& param = this->Param<param_t>();
+template <typename Dtype, PrecisionType Ptype>
+void SearchSeqDepaddingCompute<Dtype, Ptype>::Run() {
+  auto& param = this->template Param<param_t>();
   auto& ctx = this->ctx_->template As<CUDAContext>();
   auto cuda_stream = ctx.exec_stream();
 
@@ -49,9 +47,9 @@ void SearchSeqDepaddingCompute::Run() {
   auto* src = param.src;
   auto* out = param.out;
 
-  auto* in_data = pad->data<float>();
+  auto* in_data = pad->template data<Dtype>();
   out->Resize({src->dims()[0], pad->dims()[1]});
-  auto* out_data = out->mutable_data<float>(TARGET(kCUDA));
+  auto* out_data = out->template mutable_data<Dtype>(TARGET(kCUDA));
   const int count = out->numel();
 
   const auto& pad_seq_offset = pad->lod()[0];
@@ -82,7 +80,7 @@ void SearchSeqDepaddingCompute::Run() {
 
   int threads = 512;
   int blocks = (count + threads - 1) / threads;
-  ker_sequence_depadding_fwd<<<blocks, threads, 0, cuda_stream>>>(
+  ker_sequence_depadding_fwd<Dtype><<<blocks, threads, 0, cuda_stream>>>(
       out_data, in_data, seq_id_map_data, seq_num, max_len, emb_size, count);
 
   cudaError_t error = cudaGetLastError();
@@ -94,12 +92,14 @@ void SearchSeqDepaddingCompute::Run() {
 }  // namespace lite
 }  // namespace paddle
 
-REGISTER_LITE_KERNEL(search_seq_depadding,
-                     kCUDA,
-                     kFloat,
-                     kNCHW,
-                     paddle::lite::kernels::cuda::SearchSeqDepaddingCompute,
-                     def)
+using SSDFCFp32 =
+    paddle::lite::kernels::cuda::SearchSeqDepaddingCompute<float,
+                                                           PRECISION(kFloat)>;
+using SSDFCFp16 =
+    paddle::lite::kernels::cuda::SearchSeqDepaddingCompute<half,
+                                                           PRECISION(kFP16)>;
+
+REGISTER_LITE_KERNEL(search_seq_depadding, kCUDA, kFloat, kNCHW, SSDFCFp32, def)
     .BindInput("Src",
                {LiteType::GetTensorTy(TARGET(kCUDA),
                                       PRECISION(kFloat),
@@ -111,5 +111,19 @@ REGISTER_LITE_KERNEL(search_seq_depadding,
     .BindOutput("Out",
                 {LiteType::GetTensorTy(TARGET(kCUDA),
                                        PRECISION(kFloat),
+                                       DATALAYOUT(kNCHW))})
+    .Finalize();
+REGISTER_LITE_KERNEL(search_seq_depadding, kCUDA, kFP16, kNCHW, SSDFCFp16, def)
+    .BindInput("Src",
+               {LiteType::GetTensorTy(TARGET(kCUDA),
+                                      PRECISION(kFP16),
+                                      DATALAYOUT(kNCHW))})
+    .BindInput("Pad",
+               {LiteType::GetTensorTy(TARGET(kCUDA),
+                                      PRECISION(kFP16),
+                                      DATALAYOUT(kNCHW))})
+    .BindOutput("Out",
+                {LiteType::GetTensorTy(TARGET(kCUDA),
+                                       PRECISION(kFP16),
                                        DATALAYOUT(kNCHW))})
     .Finalize();
