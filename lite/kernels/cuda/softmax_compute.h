@@ -20,8 +20,9 @@ namespace lite {
 namespace kernels {
 namespace cuda {
 
+template <typename Dtype, PrecisionType Ptype>
 class SoftmaxCompute
-    : public KernelLite<TARGET(kCUDA), PRECISION(kFloat), DATALAYOUT(kNCHW)> {
+    : public KernelLite<TARGET(kCUDA), Ptype, DATALAYOUT(kNCHW)> {
  public:
   using param_t = operators::SoftmaxParam;
 

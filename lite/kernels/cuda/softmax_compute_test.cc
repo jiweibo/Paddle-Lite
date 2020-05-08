@@ -79,7 +79,7 @@ TEST(softmax_cuda, compute) {
   cudaStreamCreate(&stream);
   context.SetExecStream(stream);
 
-  SoftmaxCompute softmax;
+  SoftmaxCompute<float, PRECISION(kFloat)> softmax;
   operators::SoftmaxParam param;
   softmax.SetContext(std::move(ctx));
   lite::Tensor x;
