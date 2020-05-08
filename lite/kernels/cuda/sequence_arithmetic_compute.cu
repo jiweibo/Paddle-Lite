@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include <vector>
+#include "lite/backends/cuda/cuda_utils.h"
 #include "lite/core/op_registry.h"
 #include "lite/core/target_wrapper.h"
 #include "lite/kernels/cuda/sequence_arithmetic_compute.h"
@@ -21,16 +22,6 @@ namespace paddle {
 namespace lite {
 namespace kernels {
 namespace cuda {
-
-const int CUDA_NUM_THREADS = 512;
-
-#define CUDA_KERNEL_LOOP(i, n)                                 \
-  for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < (n); \
-       i += blockDim.x * gridDim.x)
-
-inline int CUDA_GET_BLOCKS(const int N) {
-  return (N + CUDA_NUM_THREADS - 1) / CUDA_NUM_THREADS;
-}
 
 template <typename Dtype>
 __global__ void ker_arithmetic_sum(Dtype* out_data,
@@ -113,16 +104,17 @@ __global__ void ker_arithmetic_mul(Dtype* out_data,
   }
 }
 
-void SequenceArithmeticCompute::Run() {
-  auto& param = this->Param<param_t>();
+template <typename Dtype, PrecisionType Ptype>
+void SequenceArithmeticCompute<Dtype, Ptype>::Run() {
+  auto& param = this->template Param<param_t>();
   auto& ctx = this->ctx_->template As<CUDAContext>();
   auto stream = ctx.exec_stream();
 
-  auto x_data = param.X->data<float>();
+  auto x_data = param.X->template data<Dtype>();
   auto x_lod = param.X->lod()[0];
-  auto y_data = param.Y->data<float>();
+  auto y_data = param.Y->template data<Dtype>();
   auto y_lod = param.Y->lod()[0];
-  auto out_data = param.Out->mutable_data<float>(TARGET(kCUDA));
+  auto out_data = param.Out->template mutable_data<Dtype>(TARGET(kCUDA));
 
   offset_x.Resize({static_cast<int64_t>(x_lod.size())});
   auto offset_x_data = offset_x.mutable_data<int>(TARGET(kCUDA));
@@ -177,7 +169,7 @@ void SequenceArithmeticCompute::Run() {
   switch (param.op_type) {
     case 1:  // sum
       ker_arithmetic_sum<
-          float><<<CUDA_GET_BLOCKS(count), CUDA_NUM_THREADS, 0, stream>>>(
+          Dtype><<<CUDA_GET_BLOCKS(count), CUDA_NUM_THREADS, 0, stream>>>(
           out_data,
           x_data,
           y_data,
@@ -190,7 +182,7 @@ void SequenceArithmeticCompute::Run() {
       break;
     case 2:  // sub
       ker_arithmetic_sub<
-          float><<<CUDA_GET_BLOCKS(count), CUDA_NUM_THREADS, 0, stream>>>(
+          Dtype><<<CUDA_GET_BLOCKS(count), CUDA_NUM_THREADS, 0, stream>>>(
           out_data,
           x_data,
           y_data,
@@ -203,7 +195,7 @@ void SequenceArithmeticCompute::Run() {
       break;
     case 3:  // mul
       ker_arithmetic_mul<
-          float><<<CUDA_GET_BLOCKS(count), CUDA_NUM_THREADS, 0, stream>>>(
+          Dtype><<<CUDA_GET_BLOCKS(count), CUDA_NUM_THREADS, 0, stream>>>(
           out_data,
           x_data,
           y_data,
@@ -227,23 +219,33 @@ void SequenceArithmeticCompute::Run() {
 }  // namespace lite
 }  // namespace paddle
 
-REGISTER_LITE_KERNEL(sequence_arithmetic,
-                     kCUDA,
-                     kFloat,
-                     kNCHW,
-                     paddle::lite::kernels::cuda::SequenceArithmeticCompute,
-                     def)
+using SAFp32 =
+    paddle::lite::kernels::cuda::SequenceArithmeticCompute<float,
+                                                           PRECISION(kFloat)>;
+using SAFp16 =
+    paddle::lite::kernels::cuda::SequenceArithmeticCompute<half,
+                                                           PRECISION(kFP16)>;
+
+REGISTER_LITE_KERNEL(sequence_arithmetic, kCUDA, kFloat, kNCHW, SAFp32, def)
     .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA))})
     .BindInput("Y", {LiteType::GetTensorTy(TARGET(kCUDA))})
     .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA))})
     .Finalize();
-REGISTER_LITE_KERNEL(search_seq_arithmetic,
-                     kCUDA,
-                     kFloat,
-                     kNCHW,
-                     paddle::lite::kernels::cuda::SequenceArithmeticCompute,
-                     def)
+
+REGISTER_LITE_KERNEL(sequence_arithmetic, kCUDA, kFP16, kNCHW, SAFp16, def)
+    .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .BindInput("Y", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .Finalize();
+
+REGISTER_LITE_KERNEL(search_seq_arithmetic, kCUDA, kFloat, kNCHW, SAFp32, def)
     .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA))})
     .BindInput("Y", {LiteType::GetTensorTy(TARGET(kCUDA))})
     .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA))})
+    .Finalize();
+
+REGISTER_LITE_KERNEL(search_seq_arithmetic, kCUDA, kFP16, kNCHW, SAFp16, def)
+    .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .BindInput("Y", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
     .Finalize();
