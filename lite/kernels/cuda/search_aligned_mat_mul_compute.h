@@ -25,18 +25,18 @@ namespace lite {
 namespace kernels {
 namespace cuda {
 
-class SearchAlignedMatMulCompute
-    : public KernelLite<TARGET(kCUDA), PRECISION(kFloat)> {
+template <typename T, PrecisionType PType>
+class SearchAlignedMatMulCompute : public KernelLite<TARGET(kCUDA), PType> {
  public:
   using param_t = operators::MatMulParam;
 
   void PrepareForRun() override {
-    batched_gemm_impl_.reset(new lite::cuda::math::BatchedGemm<float, float>);
+    batched_gemm_impl_.reset(new lite::cuda::math::BatchedGemm<T, T>);
   }
 
   void Run() override {
-    auto& param = this->Param<param_t>();
-    auto& cuda_ctx = ctx_->template As<CUDAContext>();
+    auto& param = this->template Param<param_t>();
+    auto& cuda_ctx = this->ctx_->template As<CUDAContext>();
     auto x = param.X;
     auto y = param.Y;
     auto out = param.Out;
@@ -61,31 +61,30 @@ class SearchAlignedMatMulCompute
     CHECK_EQ(X_K, Y_K) << "K of Input(X) and Input(Y) is not equal";
     int K = X_K;
 
-    auto x_data = x->data<float>();
-    auto y_data = y->data<float>();
-    auto out_data = out->mutable_data<float>(TARGET(kCUDA));
+    auto x_data = x->template data<T>();
+    auto y_data = y->template data<T>();
+    auto out_data = out->template mutable_data<T>(TARGET(kCUDA));
     auto x_stride = x_batch_size * x_inner_size;
     auto y_stride = y_batch_size * y_inner_size;
     auto out_stride = M * N;
 
-    float* A_[seq_num * 3];
+    T* A_[seq_num * 3];
     for (int seq = 0; seq < seq_num; ++seq) {
-      A_[seq] = const_cast<float*>(x_data) + seq * x_stride;
-      A_[seq + seq_num] = const_cast<float*>(y_data) + seq * y_stride;
+      A_[seq] = const_cast<T*>(x_data) + seq * x_stride;
+      A_[seq + seq_num] = const_cast<T*>(y_data) + seq * y_stride;
       A_[seq + seq_num * 2] = out_data + seq * out_stride;
     }
 
     CHECK(
         batched_gemm_impl_->init(x_transpose, y_transpose, seq_num, &cuda_ctx));
     batched_gemm_impl_->run(
-        alpha, 0.0f, const_cast<const float**>(A_), M, N, K, seq_num);
+        alpha, 0.0f, const_cast<const T**>(A_), M, N, K, seq_num);
   }
 
   ~SearchAlignedMatMulCompute() { batched_gemm_impl_.reset(); }
 
  private:
-  std::unique_ptr<lite::cuda::math::BatchedGemm<float, float>>
-      batched_gemm_impl_;
+  std::unique_ptr<lite::cuda::math::BatchedGemm<T, T>> batched_gemm_impl_;
 };
 
 }  // namespace cuda

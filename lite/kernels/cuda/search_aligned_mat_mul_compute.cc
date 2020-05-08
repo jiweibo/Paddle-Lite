@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "lite/kernels/cuda/search_aligned_mat_mul_compute.h"
+
 #include "lite/core/op_registry.h"
 
 namespace paddle {
@@ -23,16 +24,30 @@ namespace cuda {}  // namespace cuda
 }  // namespace lite
 }  // namespace paddle
 
-REGISTER_LITE_KERNEL(search_aligned_mat_mul,
-                     kCUDA,
-                     kFloat,
-                     kNCHW,
-                     paddle::lite::kernels::cuda::SearchAlignedMatMulCompute,
-                     def)
+using SMMFp32 =
+    paddle::lite::kernels::cuda::SearchAlignedMatMulCompute<float,
+                                                            PRECISION(kFloat)>;
+using SMMFp16 =
+    paddle::lite::kernels::cuda::SearchAlignedMatMulCompute<half,
+                                                            PRECISION(kFP16)>;
+
+REGISTER_LITE_KERNEL(search_aligned_mat_mul, kCUDA, kFloat, kNCHW, SMMFp32, def)
     .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA))})
     .BindInput("Y", {LiteType::GetTensorTy(TARGET(kCUDA))})
     .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA))})
     .BindOutput("_a_addr", {LiteType::GetTensorTy(TARGET(kCUDA))})
     .BindOutput("_b_addr", {LiteType::GetTensorTy(TARGET(kCUDA))})
     .BindOutput("_c_addr", {LiteType::GetTensorTy(TARGET(kCUDA))})
+    .Finalize();
+
+REGISTER_LITE_KERNEL(search_aligned_mat_mul, kCUDA, kFP16, kNCHW, SMMFp16, def)
+    .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .BindInput("Y", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .BindOutput("_a_addr",
+                {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .BindOutput("_b_addr",
+                {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .BindOutput("_c_addr",
+                {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
     .Finalize();

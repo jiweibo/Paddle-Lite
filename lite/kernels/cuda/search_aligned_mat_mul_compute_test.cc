@@ -187,7 +187,8 @@ TEST(search_aligned_mat_mul_compute, normal) {
                 cuda_ctx.InitOnce();
                 int dev_id = TargetWrapper<TargetType::kCUDA>::GetCurDevice();
                 cuda_ctx.Init(dev_id);
-                SearchAlignedMatMulCompute search_aligned_mat_mul;
+                SearchAlignedMatMulCompute<float, PRECISION(kFloat)>
+                    search_aligned_mat_mul;
                 search_aligned_mat_mul.SetParam(param);
                 search_aligned_mat_mul.SetContext(std::move(ctx));
                 search_aligned_mat_mul.Launch();
