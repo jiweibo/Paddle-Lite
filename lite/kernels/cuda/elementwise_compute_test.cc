@@ -40,7 +40,7 @@ static void ElementwiseBroadcastRef(
 }
 
 TEST(elementwise_add, normal) {
-  ElementwiseAddCompute elementwise_add_kernel;
+  ElementwiseAddCompute<float, PRECISION(kFloat)> elementwise_add_kernel;
   std::unique_ptr<KernelContext> ctx(new KernelContext);
   auto& context = ctx->As<CUDAContext>();
 
@@ -108,7 +108,7 @@ TEST(elementwise_add, normal) {
 }
 
 TEST(elementwise_add, bias) {
-  ElementwiseAddCompute elementwise_add_kernel;
+  ElementwiseAddCompute<float, PRECISION(kFloat)> elementwise_add_kernel;
   std::unique_ptr<KernelContext> ctx(new KernelContext);
   auto& context = ctx->As<CUDAContext>();
 
@@ -177,7 +177,7 @@ TEST(elementwise_add, bias) {
 }
 
 TEST(elementwise_add_nhwc, bias) {
-  ElementwiseAddComputeNHWC elementwise_add_kernel;
+  ElementwiseAddComputeNHWC<float, PRECISION(kFloat)> elementwise_add_kernel;
   std::unique_ptr<KernelContext> ctx(new KernelContext);
   auto& context = ctx->As<CUDAContext>();
 

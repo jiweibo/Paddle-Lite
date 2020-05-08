@@ -71,25 +71,25 @@ inline bool is_broadcast(const DDim& x_dims,
 }
 
 #define ELEMENTWISE_COMPUTE(OP)                                    \
-  auto& param = this->Param<param_t>();                            \
+  auto& param = this->template Param<param_t>();                   \
   auto& ctx = this->ctx_->template As<CUDAContext>();              \
   auto stream = ctx.exec_stream();                                 \
   const lite::Tensor* x = param.X;                                 \
   const lite::Tensor* y = param.Y;                                 \
   lite::Tensor* out = param.Out;                                   \
   int axis = param.axis;                                           \
-  auto* x_data = x->data<float>();                                 \
-  auto* y_data = y->data<float>();                                 \
-  auto out_data = out->mutable_data<float>(TARGET(kCUDA));         \
+  auto* x_data = x->template data<T>();                            \
+  auto* y_data = y->template data<T>();                            \
+  auto out_data = out->template mutable_data<T>(TARGET(kCUDA));    \
   int pixel_num = x->numel();                                      \
   int pre = 1;                                                     \
   int n = pixel_num;                                               \
   int post = 1;                                                    \
   if (is_broadcast(x->dims(), y->dims(), axis, &pre, &n, &post)) { \
-    lite::cuda::math::elementwise(                                 \
+    lite::cuda::math::elementwise<T>(                              \
         x_data, y_data, out_data, pre, n, post, OP, stream);       \
   } else {                                                         \
-    lite::cuda::math::elementwise(                                 \
+    lite::cuda::math::elementwise<T>(                              \
         x_data, y_data, out_data, 1, pixel_num, 1, OP, stream);    \
   }
 
@@ -119,7 +119,7 @@ inline bool is_broadcast(const DDim& x_dims,
 
 #define ELEMENTWISE_COMPUTE_NHWC(OP)                               \
   std::map<int, int> pos_map = {{0, 0}, {1, 3}, {2, 1}, {3, 2}};   \
-  auto& param = this->Param<param_t>();                            \
+  auto& param = this->template Param<param_t>();                   \
   auto& ctx = this->ctx_->template As<CUDAContext>();              \
   auto stream = ctx.exec_stream();                                 \
   const lite::Tensor* x = param.X;                                 \
@@ -129,18 +129,18 @@ inline bool is_broadcast(const DDim& x_dims,
   if (axis < 0) axis = x->dims().size() - y->dims().size();        \
   CHECK(axis >= 0) << "invalid axis of elementwise op";            \
   axis = pos_map[axis];                                            \
-  auto* x_data = x->data<float>();                                 \
-  auto* y_data = y->data<float>();                                 \
-  auto out_data = out->mutable_data<float>(TARGET(kCUDA));         \
+  auto* x_data = x->template data<T>();                            \
+  auto* y_data = y->template data<T>();                            \
+  auto out_data = out->mutable_data<T>(TARGET(kCUDA));             \
   int pixel_num = x->numel();                                      \
   int pre = 1;                                                     \
   int n = pixel_num;                                               \
   int post = 1;                                                    \
   if (is_broadcast(x->dims(), y->dims(), axis, &pre, &n, &post)) { \
-    lite::cuda::math::elementwise(                                 \
+    lite::cuda::math::elementwise<T>(                              \
         x_data, y_data, out_data, pre, n, post, OP, stream);       \
   } else {                                                         \
-    lite::cuda::math::elementwise(                                 \
+    lite::cuda::math::elementwise<T>(                              \
         x_data, y_data, out_data, 1, pixel_num, 1, OP, stream);    \
   }
 
@@ -172,37 +172,43 @@ inline bool is_broadcast(const DDim& x_dims,
         x_data, y_data, out_data, 1, pixel_num, 1, act, OP, stream); \
   }
 
-void ElementwiseAddCompute::Run() {
+template <typename T, PrecisionType Ptype>
+void ElementwiseAddCompute<T, Ptype>::Run() {
   ELEMENTWISE_COMPUTE(lite::cuda::math::BinaryOperation::kADD)
   cudaError_t error = cudaGetLastError();
   if (error != cudaSuccess) LOG(INFO) << cudaGetErrorString(error);
 }
 
-void ElementwiseAddComputeNHWC::Run() {
+template <typename T, PrecisionType Ptype>
+void ElementwiseAddComputeNHWC<T, Ptype>::Run() {
   ELEMENTWISE_COMPUTE_NHWC(lite::cuda::math::BinaryOperation::kADD)
   cudaError_t error = cudaGetLastError();
   if (error != cudaSuccess) LOG(INFO) << cudaGetErrorString(error);
 }
 
-void ElementwiseSubCompute::Run() {
+template <typename T, PrecisionType Ptype>
+void ElementwiseSubCompute<T, Ptype>::Run() {
   ELEMENTWISE_COMPUTE(lite::cuda::math::BinaryOperation::kSUB)
   cudaError_t error = cudaGetLastError();
   if (error != cudaSuccess) LOG(INFO) << cudaGetErrorString(error);
 }
 
-void ElementwiseSubComputeNHWC::Run() {
+template <typename T, PrecisionType Ptype>
+void ElementwiseSubComputeNHWC<T, Ptype>::Run() {
   ELEMENTWISE_COMPUTE_NHWC(lite::cuda::math::BinaryOperation::kSUB)
   cudaError_t error = cudaGetLastError();
   if (error != cudaSuccess) LOG(INFO) << cudaGetErrorString(error);
 }
 
-void ElementwiseMulCompute::Run() {
+template <typename T, PrecisionType Ptype>
+void ElementwiseMulCompute<T, Ptype>::Run() {
   ELEMENTWISE_COMPUTE(lite::cuda::math::BinaryOperation::kMUL)
   cudaError_t error = cudaGetLastError();
   if (error != cudaSuccess) LOG(INFO) << cudaGetErrorString(error);
 }
 
-void ElementwiseMulComputeNHWC::Run() {
+template <typename T, PrecisionType Ptype>
+void ElementwiseMulComputeNHWC<T, Ptype>::Run() {
   ELEMENTWISE_COMPUTE_NHWC(lite::cuda::math::BinaryOperation::kMUL)
   cudaError_t error = cudaGetLastError();
   if (error != cudaSuccess) LOG(INFO) << cudaGetErrorString(error);
@@ -249,34 +255,40 @@ void ElementwiseMulActivationComputeNHWC::Run() {
 }  // namespace lite
 }  // namespace paddle
 
-REGISTER_LITE_KERNEL(elementwise_add,
-                     kCUDA,
-                     kFloat,
-                     kNCHW,
-                     paddle::lite::kernels::cuda::ElementwiseAddCompute,
-                     def)
+using ELT_ADD_FP32 =
+    paddle::lite::kernels::cuda::ElementwiseAddCompute<float,
+                                                       PRECISION(kFloat)>;
+using ELT_SUB_FP32 =
+    paddle::lite::kernels::cuda::ElementwiseSubCompute<float,
+                                                       PRECISION(kFloat)>;
+using ELT_MUL_FP32 =
+    paddle::lite::kernels::cuda::ElementwiseMulCompute<float,
+                                                       PRECISION(kFloat)>;
+
+using ELT_ADD_NHWC_FP32 =
+    paddle::lite::kernels::cuda::ElementwiseAddComputeNHWC<float,
+                                                           PRECISION(kFloat)>;
+using ELT_SUB_NHWC_FP32 =
+    paddle::lite::kernels::cuda::ElementwiseSubComputeNHWC<float,
+                                                           PRECISION(kFloat)>;
+using ELT_MUL_NHWC_FP32 =
+    paddle::lite::kernels::cuda::ElementwiseMulComputeNHWC<float,
+                                                           PRECISION(kFloat)>;
+
+REGISTER_LITE_KERNEL(elementwise_add, kCUDA, kFloat, kNCHW, ELT_ADD_FP32, def)
     .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA))})
     .BindInput("Y", {LiteType::GetTensorTy(TARGET(kCUDA))})
     .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA))})
     .Finalize();
 
-REGISTER_LITE_KERNEL(elementwise_sub,
-                     kCUDA,
-                     kFloat,
-                     kNCHW,
-                     paddle::lite::kernels::cuda::ElementwiseSubCompute,
-                     def)
+REGISTER_LITE_KERNEL(elementwise_sub, kCUDA, kFloat, kNCHW, ELT_SUB_FP32, def)
     .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA))})
     .BindInput("Y", {LiteType::GetTensorTy(TARGET(kCUDA))})
     .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA))})
     .Finalize();
 
-REGISTER_LITE_KERNEL(elementwise_add,
-                     kCUDA,
-                     kFloat,
-                     kNHWC,
-                     paddle::lite::kernels::cuda::ElementwiseAddComputeNHWC,
-                     nhwc_format)
+REGISTER_LITE_KERNEL(
+    elementwise_add, kCUDA, kFloat, kNHWC, ELT_ADD_NHWC_FP32, nhwc_format)
     .BindInput("X",
                {LiteType::GetTensorTy(TARGET(kCUDA),
                                       PRECISION(kFloat),
@@ -291,12 +303,8 @@ REGISTER_LITE_KERNEL(elementwise_add,
                                        DATALAYOUT(kNHWC))})
     .Finalize();
 
-REGISTER_LITE_KERNEL(elementwise_sub,
-                     kCUDA,
-                     kFloat,
-                     kNHWC,
-                     paddle::lite::kernels::cuda::ElementwiseSubComputeNHWC,
-                     nhwc_format)
+REGISTER_LITE_KERNEL(
+    elementwise_sub, kCUDA, kFloat, kNHWC, ELT_SUB_NHWC_FP32, nhwc_format)
     .BindInput("X",
                {LiteType::GetTensorTy(TARGET(kCUDA),
                                       PRECISION(kFloat),
@@ -311,23 +319,14 @@ REGISTER_LITE_KERNEL(elementwise_sub,
                                        DATALAYOUT(kNHWC))})
     .Finalize();
 
-REGISTER_LITE_KERNEL(elementwise_mul,
-                     kCUDA,
-                     kFloat,
-                     kNCHW,
-                     paddle::lite::kernels::cuda::ElementwiseMulCompute,
-                     def)
+REGISTER_LITE_KERNEL(elementwise_mul, kCUDA, kFloat, kNCHW, ELT_MUL_FP32, def)
     .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA))})
     .BindInput("Y", {LiteType::GetTensorTy(TARGET(kCUDA))})
     .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA))})
     .Finalize();
 
-REGISTER_LITE_KERNEL(elementwise_mul,
-                     kCUDA,
-                     kFloat,
-                     kNHWC,
-                     paddle::lite::kernels::cuda::ElementwiseMulComputeNHWC,
-                     nhwc_format)
+REGISTER_LITE_KERNEL(
+    elementwise_mul, kCUDA, kFloat, kNHWC, ELT_MUL_NHWC_FP32, nhwc_format)
     .BindInput("X",
                {LiteType::GetTensorTy(TARGET(kCUDA),
                                       PRECISION(kFloat),
@@ -339,6 +338,89 @@ REGISTER_LITE_KERNEL(elementwise_mul,
     .BindOutput("Out",
                 {LiteType::GetTensorTy(TARGET(kCUDA),
                                        PRECISION(kFloat),
+                                       DATALAYOUT(kNHWC))})
+    .Finalize();
+
+using ELT_ADD_FP16 =
+    paddle::lite::kernels::cuda::ElementwiseAddCompute<half, PRECISION(kFP16)>;
+using ELT_SUB_FP16 =
+    paddle::lite::kernels::cuda::ElementwiseSubCompute<half, PRECISION(kFP16)>;
+using ELT_MUL_FP16 =
+    paddle::lite::kernels::cuda::ElementwiseMulCompute<half, PRECISION(kFP16)>;
+
+using ELT_ADD_NHWC_FP16 =
+    paddle::lite::kernels::cuda::ElementwiseAddComputeNHWC<half,
+                                                           PRECISION(kFP16)>;
+using ELT_SUB_NHWC_FP16 =
+    paddle::lite::kernels::cuda::ElementwiseSubComputeNHWC<half,
+                                                           PRECISION(kFP16)>;
+using ELT_MUL_NHWC_FP16 =
+    paddle::lite::kernels::cuda::ElementwiseMulComputeNHWC<half,
+                                                           PRECISION(kFP16)>;
+
+REGISTER_LITE_KERNEL(elementwise_add, kCUDA, kFP16, kNCHW, ELT_ADD_FP16, def)
+    .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .BindInput("Y", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .Finalize();
+
+REGISTER_LITE_KERNEL(elementwise_sub, kCUDA, kFP16, kNCHW, ELT_SUB_FP16, def)
+    .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .BindInput("Y", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .Finalize();
+
+REGISTER_LITE_KERNEL(
+    elementwise_add, kCUDA, kFP16, kNHWC, ELT_ADD_NHWC_FP16, nhwc_format)
+    .BindInput("X",
+               {LiteType::GetTensorTy(TARGET(kCUDA),
+                                      PRECISION(kFP16),
+                                      DATALAYOUT(kNHWC))})
+    .BindInput("Y",
+               {LiteType::GetTensorTy(TARGET(kCUDA),
+                                      PRECISION(kFP16),
+                                      DATALAYOUT(kNHWC))})
+    .BindOutput("Out",
+                {LiteType::GetTensorTy(TARGET(kCUDA),
+                                       PRECISION(kFP16),
+                                       DATALAYOUT(kNHWC))})
+    .Finalize();
+
+REGISTER_LITE_KERNEL(
+    elementwise_sub, kCUDA, kFP16, kNHWC, ELT_SUB_NHWC_FP16, nhwc_format)
+    .BindInput("X",
+               {LiteType::GetTensorTy(TARGET(kCUDA),
+                                      PRECISION(kFP16),
+                                      DATALAYOUT(kNHWC))})
+    .BindInput("Y",
+               {LiteType::GetTensorTy(TARGET(kCUDA),
+                                      PRECISION(kFP16),
+                                      DATALAYOUT(kNHWC))})
+    .BindOutput("Out",
+                {LiteType::GetTensorTy(TARGET(kCUDA),
+                                       PRECISION(kFP16),
+                                       DATALAYOUT(kNHWC))})
+    .Finalize();
+
+REGISTER_LITE_KERNEL(elementwise_mul, kCUDA, kFP16, kNCHW, ELT_MUL_FP16, def)
+    .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .BindInput("Y", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .Finalize();
+
+REGISTER_LITE_KERNEL(
+    elementwise_mul, kCUDA, kFP16, kNHWC, ELT_MUL_NHWC_FP16, nhwc_format)
+    .BindInput("X",
+               {LiteType::GetTensorTy(TARGET(kCUDA),
+                                      PRECISION(kFP16),
+                                      DATALAYOUT(kNHWC))})
+    .BindInput("Y",
+               {LiteType::GetTensorTy(TARGET(kCUDA),
+                                      PRECISION(kFP16),
+                                      DATALAYOUT(kNHWC))})
+    .BindOutput("Out",
+                {LiteType::GetTensorTy(TARGET(kCUDA),
+                                       PRECISION(kFP16),
                                        DATALAYOUT(kNHWC))})
     .Finalize();
 

@@ -20,8 +20,8 @@ namespace lite {
 namespace kernels {
 namespace cuda {
 
-class ElementwiseAddCompute
-    : public KernelLite<TARGET(kCUDA), PRECISION(kFloat)> {
+template <typename T, PrecisionType PType>
+class ElementwiseAddCompute : public KernelLite<TARGET(kCUDA), PType> {
  public:
   using param_t = operators::ElementwiseParam;
 
@@ -29,8 +29,9 @@ class ElementwiseAddCompute
   virtual ~ElementwiseAddCompute() = default;
 };
 
+template <typename T, PrecisionType PType>
 class ElementwiseAddComputeNHWC
-    : public KernelLite<TARGET(kCUDA), PRECISION(kFloat), DATALAYOUT(kNHWC)> {
+    : public KernelLite<TARGET(kCUDA), PType, DATALAYOUT(kNHWC)> {
  public:
   using param_t = operators::ElementwiseParam;
 
@@ -38,8 +39,8 @@ class ElementwiseAddComputeNHWC
   virtual ~ElementwiseAddComputeNHWC() = default;
 };
 
-class ElementwiseSubCompute
-    : public KernelLite<TARGET(kCUDA), PRECISION(kFloat)> {
+template <typename T, PrecisionType PType>
+class ElementwiseSubCompute : public KernelLite<TARGET(kCUDA), PType> {
  public:
   using param_t = operators::ElementwiseParam;
 
@@ -47,8 +48,9 @@ class ElementwiseSubCompute
   virtual ~ElementwiseSubCompute() = default;
 };
 
+template <typename T, PrecisionType PType>
 class ElementwiseSubComputeNHWC
-    : public KernelLite<TARGET(kCUDA), PRECISION(kFloat), DATALAYOUT(kNHWC)> {
+    : public KernelLite<TARGET(kCUDA), PType, DATALAYOUT(kNHWC)> {
  public:
   using param_t = operators::ElementwiseParam;
 
@@ -56,8 +58,8 @@ class ElementwiseSubComputeNHWC
   virtual ~ElementwiseSubComputeNHWC() = default;
 };
 
-class ElementwiseMulCompute
-    : public KernelLite<TARGET(kCUDA), PRECISION(kFloat)> {
+template <typename T, PrecisionType PType>
+class ElementwiseMulCompute : public KernelLite<TARGET(kCUDA), PType> {
  public:
   using param_t = operators::ElementwiseParam;
 
@@ -65,8 +67,9 @@ class ElementwiseMulCompute
   virtual ~ElementwiseMulCompute() = default;
 };
 
+template <typename T, PrecisionType PType>
 class ElementwiseMulComputeNHWC
-    : public KernelLite<TARGET(kCUDA), PRECISION(kFloat), DATALAYOUT(kNHWC)> {
+    : public KernelLite<TARGET(kCUDA), PType, DATALAYOUT(kNHWC)> {
  public:
   using param_t = operators::ElementwiseParam;
 

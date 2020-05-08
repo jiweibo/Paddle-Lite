@@ -17,6 +17,7 @@
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
 #include <cudnn.h>
+
 #include <limits>
 #include <string>
 
@@ -43,6 +44,36 @@ __device__ __forceinline__ float binary_calc(float x,
   if (type == BinaryOperation::kMUL) return x * y;
   if (type == BinaryOperation::kDIV) return x / y;
   if (type == BinaryOperation::kSUB) return x - y;
+}
+
+template <>
+__device__ __forceinline__ float2 binary_calc(float2 x,
+                                              float2 y,
+                                              BinaryOperation type) {
+  if (type == BinaryOperation::kADD) return make_float2(x.x + y.x, x.y + y.y);
+  if (type == BinaryOperation::kMUL) return make_float2(x.x * y.x, x.y * y.y);
+  if (type == BinaryOperation::kDIV) return make_float2(x.x / y.x, x.y / y.y);
+  if (type == BinaryOperation::kSUB) return make_float2(x.x - y.x, x.y - y.y);
+}
+
+template <>
+__device__ __forceinline__ half binary_calc(half x,
+                                            half y,
+                                            BinaryOperation type) {
+  if (type == BinaryOperation::kADD) return __hadd(x, y);
+  if (type == BinaryOperation::kMUL) return __hmul(x, y);
+  if (type == BinaryOperation::kDIV) return __hdiv(x, y);
+  if (type == BinaryOperation::kSUB) return __hsub(x, y);
+}
+
+template <>
+__device__ __forceinline__ half2 binary_calc(half2 x,
+                                             half2 y,
+                                             BinaryOperation type) {
+  if (type == BinaryOperation::kADD) return __hadd2(x, y);
+  if (type == BinaryOperation::kMUL) return __hmul2(x, y);
+  if (type == BinaryOperation::kDIV) return __h2div(x, y);
+  if (type == BinaryOperation::kSUB) return __hsub2(x, y);
 }
 
 template <typename T>

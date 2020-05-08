@@ -40,6 +40,48 @@ __global__ void elementwise_kernel(const size_t total,
   }
 }
 
+template <>
+__global__ void elementwise_kernel(const size_t total,
+                                   const half* x_data,
+                                   const half* y_data,
+                                   half* out_data,
+                                   int pre,
+                                   int n,
+                                   int post,
+                                   BinaryOperation type) {
+  int tid = blockIdx.x * blockDim.x + threadIdx.x;
+  if (tid < total) {
+    int idx = tid / post % n;
+#if __CUDA_ARCH__ >= 530
+    out_data[tid] = binary_calc(__ldg(x_data + tid), __ldg(y_data + idx), type);
+#else
+    out_data[tid] = __float2half(binary_calc(
+        __half2float(x_data[tid]), __half2float(y_data[idx]), type));
+#endif
+  }
+}
+
+template <>
+__global__ void elementwise_kernel(const size_t total,
+                                   const half2* x_data,
+                                   const half2* y_data,
+                                   half2* out_data,
+                                   int pre,
+                                   int n,
+                                   int post,
+                                   BinaryOperation type) {
+  int tid = blockIdx.x * blockDim.x + threadIdx.x;
+  if (tid < total / 2) {
+    int idx = tid / post % n;
+#if __CUDA_ARCH__ >= 530
+    out_data[tid] = binary_calc(__ldg(x_data + tid), __ldg(y_data + idx), type);
+#else
+    out_data[tid] = __float22half2_rn(binary_calc(
+        __half22float2(x_data[tid]), __half22float2(y_data[idx]), type));
+#endif
+  }
+}
+
 template <typename Dtype>
 __global__ void elementwise_relu_kernel(const size_t total,
                                         const Dtype* x_data,
@@ -177,8 +219,32 @@ void elementwise(const Dtype* x_data,
   int num = pre * n * post;
   int thread = 256;
   int block = (num + thread - 1) / thread;
-  elementwise_kernel<<<block, thread, 0, stream>>>(
+  elementwise_kernel<Dtype><<<block, thread, 0, stream>>>(
       num, x_data, y_data, out_data, pre, n, post, type);
+}
+
+template <>
+void elementwise(const half* x_data,
+                 const half* y_data,
+                 half* out_data,
+                 int pre,
+                 int n,
+                 int post,
+                 BinaryOperation type,
+                 cudaStream_t stream) {
+  int num = pre * n * post;
+  int thread = 256;
+  int block = (num + thread - 1) / thread;
+  if (num % 2) {
+    elementwise_kernel<half><<<block, thread, 0, stream>>>(
+        num, x_data, y_data, out_data, pre, n, post, type);
+  } else {
+    auto* x2_data = reinterpret_cast<const half2*>(x_data);
+    auto* y2_data = reinterpret_cast<const half2*>(y_data);
+    half2* out2_data = reinterpret_cast<half2*>(out_data);
+    elementwise_kernel<half2><<<block, thread, 0, stream>>>(
+        num, x2_data, y2_data, out2_data, pre, n, post, type);
+  }
 }
 
 template <typename Dtype>
