@@ -13,11 +13,16 @@
 // limitations under the License.
 
 #include "lite/kernels/cuda/attention_padding_mask_compute.h"
+
 #include <gtest/gtest.h>
+
 #include <iostream>
 #include <memory>
 #include <utility>
 #include <vector>
+
+#include "lite/api/test_helper.h"
+#include "lite/backends/cuda/float16.h"
 #include "lite/core/op_registry.h"
 
 namespace paddle {
@@ -25,106 +30,190 @@ namespace lite {
 namespace kernels {
 namespace cuda {
 
-void attention_padding_mask_ref(
-    const Tensor& x,
-    const Tensor& y,
-    Tensor* out,
-    Tensor* pad_begin,
-    const operators::AttentionPaddingMaskParam& param) {
-  auto attn_offset = x.lod()[0];
-  auto src_offset = y.lod()[0];
-  int attn_seq_num = attn_offset.size() - 1;
-  int src_seq_num = src_offset.size() - 1;
-  int attn_seq_len = attn_offset[1];
-  int src_seq_len = x.dims()[1];
-  CHECK_EQ(attn_seq_num % src_seq_num, 0);
+class AttentionPaddingMaskTest : public ::testing::Test {
+ protected:
+  AttentionPaddingMaskTest()
+      : dims(54), lod_info({{0, 54}}), mask(-90000000.f), pad_id(12800001) {
+    in_out_init();
+    cpu_base(x_ref, y_ref, &out_ref);
+    device_init();
+  }
 
-  auto count = x.numel();
-  auto attn_data = x.data<float>();
-  out->Resize(x.dims());
-  out->set_lod(x.lod());
-  auto out_data = out->mutable_data<float>();
-  memcpy(out_data, attn_data, count * sizeof(float));
+  void in_out_init() {
+    x_ref.Resize({dims, dims});
+    x_ref.set_lod(lod_info);
+    y_ref.Resize({dims, 1});
+    y_ref.set_lod(lod_info);
+    out_ref.Resize(x_ref.dims());
+    pad_begin_ref.Resize({static_cast<int64_t>(y_ref.lod()[0].size() - 1)});
 
-  for (int i = 0; i < attn_seq_num; ++i) {
-    for (int j = 0; j < attn_seq_len; ++j) {
-      auto tmp_out_data = out_data + src_seq_len * (attn_seq_len * i + j);
-      int src_seq_idx = i % src_seq_num;
-      int cur_len = src_offset[src_seq_idx + 1] - src_offset[src_seq_idx];
-      for (int k = cur_len; k < src_seq_len; k++) {
-        tmp_out_data[k] = param.mask;
+    x_gpu.Resize(x_ref.dims());
+    y_gpu.Resize(y_ref.dims());
+    x_gpu.set_lod(x_ref.lod());
+    y_gpu.set_lod(y_ref.lod());
+    out_gpu.Resize(out_ref.dims());
+    pad_begin_gpu.Resize(pad_begin_ref.dims());
+
+    // prepare input
+    auto x_ref_data = x_ref.mutable_data<float>();
+    for (int64_t i = 0; i < x_ref.numel(); i++) {
+      x_ref_data[i] = static_cast<float>(i % 10 * 0.2);
+    }
+    auto y_ref_data = y_ref.mutable_data<float>();
+    for (int64_t i = 0; i < y_ref.numel(); i++) {
+      y_ref_data[i] = static_cast<float>(i % 10 * 0.2);
+    }
+  }
+
+  void device_init() {
+    ctx.reset(new KernelContext);
+    cudaStreamCreate(&stream);
+    auto& context = ctx->As<CUDAContext>();
+    context.SetExecStream(stream);
+
+    param.X = &x_gpu;
+    param.Y = &y_gpu;
+    param.pad_id = pad_id;
+    param.mask = mask;
+    param.Out = &out_gpu;
+    param.pad_begin = &pad_begin_gpu;
+  }
+
+  void float_data_init() {
+    x_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(x_ref.data<float>(),
+                                                   x_gpu.dims());
+    y_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(y_ref.data<float>(),
+                                                   y_gpu.dims());
+  }
+
+  void half_data_init() {
+    x_half.Resize(x_ref.dims());
+    auto x_half_data = x_half.mutable_data<half>();
+    for (int64_t i = 0; i < x_half.numel(); i++) {
+      x_half_data[i] = half(lite::cuda::float16(x_ref.data<float>()[i]));
+    }
+    x_gpu.Assign<__half, lite::DDim, TARGET(kCUDA)>(x_half_data, x_gpu.dims());
+
+    y_half.Resize(y_ref.dims());
+    auto y_half_data = y_half.mutable_data<half>();
+    for (int64_t i = 0; i < y_half.numel(); i++) {
+      y_half_data[i] = half(lite::cuda::float16(y_ref.data<float>()[i]));
+    }
+    y_gpu.Assign<__half, lite::DDim, TARGET(kCUDA)>(y_half_data, y_gpu.dims());
+  }
+
+  void cpu_base(const lite::Tensor& x, const lite::Tensor& y, Tensor* out) {
+    auto attn_offset = x.lod()[0];
+    auto src_offset = y.lod()[0];
+    int attn_seq_num = attn_offset.size() - 1;
+    int src_seq_num = src_offset.size() - 1;
+    int attn_seq_len = attn_offset[1];
+    int src_seq_len = x.dims()[1];
+    CHECK_EQ(attn_seq_num % src_seq_num, 0);
+
+    auto count = x.numel();
+    auto attn_data = x.data<float>();
+    out->Resize(x.dims());
+    out->set_lod(x.lod());
+    auto out_data = out->mutable_data<float>();
+    memcpy(out_data, attn_data, count * sizeof(float));
+
+    for (int i = 0; i < attn_seq_num; ++i) {
+      for (int j = 0; j < attn_seq_len; ++j) {
+        auto tmp_out_data = out_data + src_seq_len * (attn_seq_len * i + j);
+        int src_seq_idx = i % src_seq_num;
+        int cur_len = src_offset[src_seq_idx + 1] - src_offset[src_seq_idx];
+        for (int k = cur_len; k < src_seq_len; k++) {
+          tmp_out_data[k] = mask;
+        }
       }
     }
   }
-}
 
-void prepare_input(Tensor* x, const LoD& lod, int64_t dim2rd) {
-  std::vector<int64_t> x_dims{static_cast<int64_t>(lod[0].back()), dim2rd};
-  x->Resize(x_dims);
-  x->set_lod(lod);
-  auto x_data = x->mutable_data<float>();
-  auto x_num = x->numel();
-  for (int i = 0; i < x_num; i++) {
-    x_data[i] = (i - x_num) * 1.1;
-  }
-}
-
-int get_max_len(const LoD& lod) {
-  int max_len = 0;
-  auto offset = lod[0];
-  for (int i = 0; i < offset.size() - 1; i++) {
-    int cur_len = offset[i + 1] - offset[i];
-    max_len = max_len < cur_len ? cur_len : max_len;
-  }
-  return max_len;
-}
-
-TEST(attention_padding_mask_cuda, run_test) {
-  lite::Tensor x, y, x_cpu, y_cpu;
-  lite::Tensor out, pad_begin, out_cpu, out_ref, pad_begin_ref;
-
-  LoD x_lod{{0, 3, 6, 9, 12}}, y_lod{{0, 4, 6}};
-  prepare_input(&x_cpu, x_lod, get_max_len(y_lod));
-  prepare_input(&y_cpu, y_lod, 1);
-
-  x.Resize(x_cpu.dims());
-  x.set_lod(x_cpu.lod());
-  auto x_cpu_data = x_cpu.mutable_data<float>();
-  x.Assign<float, lite::DDim, TARGET(kCUDA)>(x_cpu_data, x_cpu.dims());
-
-  y.Resize(y_cpu.dims());
-  y.set_lod(y_cpu.lod());
+  int dims;
+  LoD lod_info;
+  float mask;
+  int pad_id;
+  lite::Tensor x_ref, y_ref, out_ref, pad_begin_ref;
+  lite::Tensor x_gpu, y_gpu, out_gpu, pad_begin_gpu;
+  lite::Tensor x_half, y_half;
+  lite::Tensor out_cpu, pad_begin_cpu;
 
   operators::AttentionPaddingMaskParam param;
-  param.X = &x;
-  param.Y = &y;
-  param.pad_id = 12800001;
-  param.mask = -90000000.f;
-  param.Out = &out;
-  param.pad_begin = &pad_begin;
-
-  std::unique_ptr<KernelContext> ctx(new KernelContext);
-  auto context = ctx->As<CUDAContext>();
+  std::unique_ptr<KernelContext> ctx;
   cudaStream_t stream;
-  cudaStreamCreate(&stream);
-  context.SetExecStream(stream);
+};
 
-  AttentionPaddingMaskCompute attention_padding_mask_kernel;
-  attention_padding_mask_kernel.SetParam(param);
-  attention_padding_mask_kernel.SetContext(std::move(ctx));
-  attention_padding_mask_kernel.Run();
+TEST_F(AttentionPaddingMaskTest, TestFP32) {
+  float_data_init();
+  AttentionPaddingMaskCompute<float, PRECISION(kFloat)> kernel;
+  kernel.SetParam(param);
+  kernel.SetContext(std::move(ctx));
+
+  for (int i = 0; i < FLAGS_warmup; ++i) {
+    kernel.Launch();
+    cudaDeviceSynchronize();
+  }
+
+  auto start = GetCurrentUS();
+  kernel.PrepareForRun();
+  for (int i = 0; i < FLAGS_repeats; ++i) {
+    kernel.Run();
+  }
   cudaDeviceSynchronize();
+  auto duration = (GetCurrentUS() - start) / 1000.0;
+  LOG(INFO) << "fp32, warmup: " << FLAGS_warmup
+            << ", repeats: " << FLAGS_repeats << ", spend "
+            << duration / FLAGS_repeats << " ms in average.";
+  out_cpu.Resize(out_gpu.dims());
+  CopySync<TARGET(kCUDA)>(out_cpu.mutable_data<float>(),
+                          out_gpu.data<float>(),
+                          sizeof(float) * out_gpu.numel(),
+                          IoDirection::DtoH);
+  pad_begin_cpu.Resize(pad_begin_gpu.dims());
+  CopySync<TARGET(kCUDA)>(pad_begin_cpu.mutable_data<int>(),
+                          pad_begin_gpu.data<int>(),
+                          sizeof(int) * pad_begin_gpu.numel(),
+                          IoDirection::DtoH);
+  for (int i = 0; i < out_gpu.numel(); ++i) {
+    EXPECT_NEAR(out_cpu.data<float>()[i], out_ref.data<float>()[i], 1e-5);
+  }
+}
 
-  auto out_data = out.mutable_data<float>(TARGET(kCUDA));
-  out_cpu.Resize(out.dims());
-  auto out_cpu_data = out_cpu.mutable_data<float>();
-  CopySync<TARGET(kCUDA)>(
-      out_cpu_data, out_data, sizeof(float) * out.numel(), IoDirection::DtoH);
+TEST_F(AttentionPaddingMaskTest, TestFP16) {
+  half_data_init();
+  AttentionPaddingMaskCompute<__half, PRECISION(kFP16)> kernel;
+  kernel.SetParam(param);
+  kernel.SetContext(std::move(ctx));
 
-  attention_padding_mask_ref(x_cpu, y_cpu, &out_ref, &pad_begin_ref, param);
-  auto out_ref_data = out_ref.data<float>();
-  for (int i = 0; i < out.numel(); i++) {
-    EXPECT_NEAR(out_cpu_data[i], out_ref_data[i], 1e-5);
+  for (int i = 0; i < FLAGS_warmup; ++i) {
+    kernel.Launch();
+    cudaDeviceSynchronize();
+  }
+
+  auto start = GetCurrentUS();
+  kernel.PrepareForRun();
+  for (int i = 0; i < FLAGS_repeats; ++i) {
+    kernel.Run();
+  }
+  cudaDeviceSynchronize();
+  auto duration = (GetCurrentUS() - start) / 1000.0;
+  LOG(INFO) << "fp16, warmup: " << FLAGS_warmup
+            << ", repeats: " << FLAGS_repeats << ", spend "
+            << duration / FLAGS_repeats << " ms in average.";
+
+  out_cpu.Resize(out_gpu.dims());
+  const __half* out_gpu_data = out_gpu.data<__half>();
+  __half* out_cpu_data = out_cpu.mutable_data<__half>();
+  CopySync<TARGET(kCUDA)>(out_cpu_data,
+                          out_gpu_data,
+                          sizeof(__half) * out_gpu.numel(),
+                          IoDirection::DtoH);
+
+  for (int i = 0; i < out_cpu.numel(); ++i) {
+    float res = static_cast<float>(lite::cuda::float16(out_cpu_data[i]));
+    float ref = out_ref.data<float>()[i];
+    EXPECT_NEAR(fabs(res - ref) / (ref + 1e-5), 0., 1e-3);
   }
 }
 
