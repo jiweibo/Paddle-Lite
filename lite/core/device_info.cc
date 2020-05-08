@@ -947,7 +947,7 @@ void DeviceInfo::RequestPowerNoBindMode(int thread_num) {
     active_ids_ = core_ids_;
   } else {
     active_ids_.resize(thread_num);
-    for (int i = 0; i < thread_num; ++i) {
+    for (uint32_t i = 0; i < thread_num; ++i) {
       if (i < big_core_ids_.size()) {
         active_ids_[i] = big_core_ids_[i];
       } else {
@@ -1239,6 +1239,19 @@ void Device<TARGET(kMLU)>::CreateQueue() {
   }
 }
 #endif  // LITE_WITH_MLU
+
+#ifdef LITE_WITH_BM
+void Device<TARGET(kBM)>::SetId(int device_id) {
+  LOG(INFO) << "Set bm device " << device_id;
+  TargetWrapper<TARGET(kBM)>::SetDevice(device_id);
+  idx_ = device_id;
+}
+
+void Device<TARGET(kBM)>::Init() { SetId(idx_); }
+int Device<TARGET(kBM)>::core_num() {
+  return TargetWrapper<TARGET(kBM)>::num_devices();
+}
+#endif  // LITE_WITH_BM
 
 #ifdef LITE_WITH_CUDA
 

@@ -24,9 +24,9 @@ namespace lite_api {
 size_t Place::hash() const {
   std::hash<int> h;
   size_t hash = h(static_cast<int>(target));
-  hash = lite::hash_combine(hash, static_cast<int>(precision));
-  hash = lite::hash_combine(hash, static_cast<int>(layout));
-  hash = lite::hash_combine(hash, static_cast<int>(device));
+  lite::CombineHash(static_cast<int64_t>(precision), &hash);
+  lite::CombineHash(static_cast<int64_t>(layout), &hash);
+  lite::CombineHash(static_cast<int64_t>(device), &hash);
   return hash;
 }
 
@@ -73,7 +73,8 @@ const std::string& TargetToStr(TargetType target) {
                                               "xpu",
                                               "bm",
                                               "mlu",
-                                              "rknpu"};
+                                              "rknpu",
+                                              "apu"};
   auto x = static_cast<int>(target);
   CHECK_LT(x, static_cast<int>(TARGET(NUM)));
   return target2string[x];
@@ -113,9 +114,10 @@ const std::string& TargetRepr(TargetType target) {
                                               "kFPGA",
                                               "kNPU",
                                               "kXPU",
-                                              "kMLU",
                                               "kBM",
-                                              "kRKNPU"};
+                                              "kMLU",
+                                              "kRKNPU",
+                                              "kAPU"};
   auto x = static_cast<int>(target);
   CHECK_LT(x, static_cast<int>(TARGET(NUM)));
   return target2string[x];
@@ -158,6 +160,8 @@ std::set<TargetType> ExpandValidTargets(TargetType target) {
                                                TARGET(kXPU),
                                                TARGET(kBM),
                                                TARGET(kMLU),
+                                               TARGET(kAPU),
+                                               TARGET(kRKNPU),
                                                TARGET(kFPGA)});
   if (target == TARGET(kAny)) {
     return valid_set;
