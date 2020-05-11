@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #pragma once
+#include <limits>
 #include <memory>
 #include "lite/backends/cuda/math/batched_gemm.h"
 #include "lite/core/context.h"
@@ -32,6 +33,7 @@ class SearchAlignedMatMulCompute : public KernelLite<TARGET(kCUDA), PType> {
 
   void PrepareForRun() override {
     batched_gemm_impl_.reset(new lite::cuda::math::BatchedGemm<T, T>);
+    last_seq_num_ = std::numeric_limits<int>::min();
   }
 
   void Run() override {
@@ -75,8 +77,11 @@ class SearchAlignedMatMulCompute : public KernelLite<TARGET(kCUDA), PType> {
       A_[seq + seq_num * 2] = out_data + seq * out_stride;
     }
 
-    CHECK(
-        batched_gemm_impl_->init(x_transpose, y_transpose, seq_num, &cuda_ctx));
+    if (seq_num != last_seq_num_) {
+      CHECK(batched_gemm_impl_->init(
+          x_transpose, y_transpose, seq_num, &cuda_ctx));
+      last_seq_num_ = seq_num;
+    }
     batched_gemm_impl_->run(
         alpha, 0.0f, const_cast<const T**>(A_), M, N, K, seq_num);
   }
@@ -85,6 +90,7 @@ class SearchAlignedMatMulCompute : public KernelLite<TARGET(kCUDA), PType> {
 
  private:
   std::unique_ptr<lite::cuda::math::BatchedGemm<T, T>> batched_gemm_impl_;
+  int last_seq_num_;
 };
 
 }  // namespace cuda
