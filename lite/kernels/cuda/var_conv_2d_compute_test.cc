@@ -211,6 +211,8 @@ class VarConvTest : public ::testing::Test {
   void device_init() {
     ctx.reset(new KernelContext);
     cudaStreamCreate(&stream);
+    auto& context = ctx->As<CUDAContext>();
+    context.SetExecStream(stream);
     param.X = &X_gpu;
     param.W = &W_gpu;
     param.Out = &Out_gpu;
@@ -277,8 +279,6 @@ class VarConvTest : public ::testing::Test {
 
 TEST_F(VarConvTest, TestFP32) {
   float_data_init();
-  auto& context = ctx->As<CUDAContext>();
-  context.SetExecStream(stream);
   VarConv2DCompute<float, PRECISION(kFloat)> var_conv_2d_kernel;
   var_conv_2d_kernel.SetParam(param);
   var_conv_2d_kernel.SetContext(std::move(ctx));
@@ -311,8 +311,6 @@ TEST_F(VarConvTest, TestFP32) {
 
 TEST_F(VarConvTest, TestFP16) {
   half_data_init();
-  auto& context = ctx->As<CUDAContext>();
-  context.SetExecStream(stream);
   VarConv2DCompute<half, PRECISION(kFP16)> var_conv_2d_kernel;
   var_conv_2d_kernel.SetParam(param);
   var_conv_2d_kernel.SetContext(std::move(ctx));

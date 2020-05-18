@@ -235,15 +235,15 @@ void elementwise(const half* x_data,
   int num = pre * n * post;
   int thread = 256;
   int block = (num + thread - 1) / thread;
-  if (num % 2) {
-    elementwise_kernel<half><<<block, thread, 0, stream>>>(
-        num, x_data, y_data, out_data, pre, n, post, type);
-  } else {
+  if (num % 2 == 0 && pre == 1 && post == 1) {
     auto* x2_data = reinterpret_cast<const half2*>(x_data);
     auto* y2_data = reinterpret_cast<const half2*>(y_data);
     half2* out2_data = reinterpret_cast<half2*>(out_data);
     elementwise_kernel<half2><<<block, thread, 0, stream>>>(
         num, x2_data, y2_data, out2_data, pre, n, post, type);
+  } else {
+    elementwise_kernel<half><<<block, thread, 0, stream>>>(
+        num, x_data, y_data, out_data, pre, n, post, type);
   }
 }
 
