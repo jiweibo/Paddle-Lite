@@ -123,24 +123,6 @@ __global__ void LookupTableKernel<half>(half *output,
   }
 }
 
-template <>
-void LookupTableCompute<float, PRECISION(kFloat)>::PrepareForRun() {
-  auto &param = this->Param<param_t>();
-  w_tensor_ = param.W;
-}
-
-template <>
-void LookupTableCompute<half, PRECISION(kFP16)>::PrepareForRun() {
-  auto &param = this->Param<param_t>();
-  w_half_tensor_.Resize(param.W->dims());
-  lite::cuda::math::fp32_to_fp16(
-      param.W->numel(),
-      param.W->data<float>(),
-      w_half_tensor_.mutable_data<half>(TARGET(kCUDA)));
-  w_half_tensor_.set_lod(param.W->lod());
-  w_tensor_ = &w_half_tensor_;
-}
-
 template <typename T, PrecisionType PType>
 void LookupTableCompute<T, PType>::Run() {
   auto &param = this->template Param<param_t>();
@@ -150,11 +132,11 @@ void LookupTableCompute<T, PType>::Run() {
   Tensor *out_t = param.Out;
   int64_t padding_idx = param.padding_idx;
 
-  size_t N = w_tensor_->dims()[0];
-  size_t D = w_tensor_->dims()[1];
+  size_t N = param.W->dims()[0];
+  size_t D = param.W->dims()[1];
   size_t K = ids_t->numel();
 
-  auto *w = w_tensor_->data<T>();
+  auto *w = param.W->template data<T>();
   auto *ids = ids_t->data<int64_t>();
   auto *out = out_t->mutable_data<T>(TARGET(kCUDA));
 
@@ -191,12 +173,12 @@ REGISTER_LITE_KERNEL(lookup_table_v2, kCUDA, kFloat, kNCHW, LKTFp32, def)
                 {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFloat))})
     .Finalize();
 REGISTER_LITE_KERNEL(lookup_table, kCUDA, kFP16, kNCHW, LKTFp16, def)
-    .BindInput("W", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFloat))})
+    .BindInput("W", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
     .BindInput("Ids", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kInt64))})
     .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
     .Finalize();
 REGISTER_LITE_KERNEL(lookup_table_v2, kCUDA, kFP16, kNCHW, LKTFp16, def)
-    .BindInput("W", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFloat))})
+    .BindInput("W", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
     .BindInput("Ids", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kInt64))})
     .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
     .Finalize();
