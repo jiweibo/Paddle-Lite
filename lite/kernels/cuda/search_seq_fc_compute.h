@@ -36,9 +36,6 @@ class SearchSeqFcCompute : public KernelLite<TARGET(kCUDA), PType> {
 
  private:
   std::unique_ptr<lite::cuda::math::Gemm<T, T>> gemm_impl_{nullptr};
-  const lite::Tensor* b_tensor_;
-  const lite::Tensor* w_tensor_;
-  lite::Tensor b_half_tensor_, w_half_tensor_;
 };
 
 }  // namespace cuda

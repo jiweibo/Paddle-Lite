@@ -77,15 +77,15 @@ class SearchSeqFCTest : public ::testing::Test {
     param.b = &b_gpu;
     param.out_size = n;
     param.out = &Out_gpu;
-    W_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(W_ref.data<float>(),
-                                                   W_gpu.dims());
-    b_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(b_ref.data<float>(),
-                                                   b_gpu.dims());
   }
 
   void float_data_init() {
     X_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(X_ref.data<float>(),
                                                    X_gpu.dims());
+    W_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(W_ref.data<float>(),
+                                                   W_gpu.dims());
+    b_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(b_ref.data<float>(),
+                                                   b_gpu.dims());
   }
 
   void half_data_init() {
@@ -95,6 +95,18 @@ class SearchSeqFCTest : public ::testing::Test {
       x_half_data[i] = half(lite::float16(X_ref.data<float>()[i]));
     }
     X_gpu.Assign<__half, lite::DDim, TARGET(kCUDA)>(x_half_data, X_gpu.dims());
+    W_half.Resize(W_ref.dims());
+    auto w_half_data = W_half.mutable_data<half>();
+    for (int64_t i = 0; i < W_half.numel(); i++) {
+      w_half_data[i] = half(lite::float16(W_ref.data<float>()[i]));
+    }
+    W_gpu.Assign<half, lite::DDim, TARGET(kCUDA)>(w_half_data, W_gpu.dims());
+    b_half.Resize(b_ref.dims());
+    auto b_half_data = b_half.mutable_data<half>();
+    for (int64_t i = 0; i < b_half.numel(); i++) {
+      b_half_data[i] = half(lite::float16(b_ref.data<float>()[i]));
+    }
+    b_gpu.Assign<half, lite::DDim, TARGET(kCUDA)>(b_half_data, b_gpu.dims());
   }
 
   void fc_cpu_base(const lite::Tensor* X,
@@ -125,7 +137,7 @@ class SearchSeqFCTest : public ::testing::Test {
   std::vector<int64_t> x_shape, w_shape, b_shape, out_shape;
   lite::Tensor X_ref, W_ref, b_ref, Out_ref;
   lite::Tensor X_gpu, W_gpu, b_gpu;
-  lite::Tensor X_half;
+  lite::Tensor X_half, W_half, b_half;
   lite::Tensor Out_cpu, Out_gpu;
 
   operators::SearchSeqFcParam param;

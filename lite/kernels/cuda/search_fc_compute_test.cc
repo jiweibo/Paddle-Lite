@@ -18,7 +18,7 @@
 #include <utility>
 #include <vector>
 #include "lite/api/test_helper.h"
-#include "lite/backends/cuda/float16.h"
+#include "lite/utils/float16.h"
 
 namespace paddle {
 namespace lite {
@@ -76,24 +76,36 @@ class SearchFCTest : public ::testing::Test {
     param.b = &b_gpu;
     param.out_size = n;
     param.Out = &Out_gpu;
+  }
+
+  void float_data_init() {
+    X_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(X_ref.data<float>(),
+                                                   X_gpu.dims());
     W_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(W_ref.data<float>(),
                                                    W_gpu.dims());
     b_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(b_ref.data<float>(),
                                                    b_gpu.dims());
   }
 
-  void float_data_init() {
-    X_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(X_ref.data<float>(),
-                                                   X_gpu.dims());
-  }
-
   void half_data_init() {
     X_half.Resize(lite::DDim(x_shape));
-    auto x_half_data = X_half.mutable_data<__half>();
+    auto x_half_data = X_half.mutable_data<half>();
     for (int64_t i = 0; i < X_half.numel(); i++) {
-      x_half_data[i] = half(lite::cuda::float16(X_ref.data<float>()[i]));
+      x_half_data[i] = half(lite::float16(X_ref.data<float>()[i]));
     }
-    X_gpu.Assign<__half, lite::DDim, TARGET(kCUDA)>(x_half_data, X_gpu.dims());
+    X_gpu.Assign<half, lite::DDim, TARGET(kCUDA)>(x_half_data, X_gpu.dims());
+    W_half.Resize(W_ref.dims());
+    auto w_half_data = W_half.mutable_data<half>();
+    for (int64_t i = 0; i < W_half.numel(); i++) {
+      w_half_data[i] = half(lite::float16(W_ref.data<float>()[i]));
+    }
+    W_gpu.Assign<half, lite::DDim, TARGET(kCUDA)>(w_half_data, W_gpu.dims());
+    b_half.Resize(b_ref.dims());
+    auto b_half_data = b_half.mutable_data<half>();
+    for (int64_t i = 0; i < b_half.numel(); i++) {
+      b_half_data[i] = half(lite::float16(b_ref.data<float>()[i]));
+    }
+    b_gpu.Assign<half, lite::DDim, TARGET(kCUDA)>(b_half_data, b_gpu.dims());
   }
 
   void fc_cpu_base(const lite::Tensor* X,
@@ -124,49 +136,13 @@ class SearchFCTest : public ::testing::Test {
   std::vector<int64_t> x_shape, w_shape, b_shape, out_shape;
   lite::Tensor X_ref, W_ref, b_ref, Out_ref;
   lite::Tensor X_gpu, W_gpu, b_gpu;
-  lite::Tensor X_half;
+  lite::Tensor X_half, W_half, b_half;
   lite::Tensor Out_cpu, Out_gpu;
 
   operators::SearchFcParam param;
   std::unique_ptr<KernelContext> ctx;
   cudaStream_t stream;
 };
-
-TEST_F(SearchFCTest, TestFP16) {
-  half_data_init();
-  SearchFcCompute<__half, PRECISION(kFP16)> search_fc_kernel;
-  search_fc_kernel.SetParam(param);
-  search_fc_kernel.SetContext(std::move(ctx));
-
-  for (int i = 0; i < FLAGS_warmup; ++i) {
-    search_fc_kernel.Launch();
-    cudaDeviceSynchronize();
-  }
-
-  auto start = GetCurrentUS();
-  search_fc_kernel.PrepareForRun();
-  for (int i = 0; i < FLAGS_repeats; ++i) {
-    search_fc_kernel.Run();
-  }
-  cudaDeviceSynchronize();
-  auto duration = (GetCurrentUS() - start) / 1000.0;
-  LOG(INFO) << "fp16, warmup: " << FLAGS_warmup
-            << ", repeats: " << FLAGS_repeats << ", spend "
-            << duration / FLAGS_repeats << " ms in average.";
-
-  const __half* out_gpu_data = Out_gpu.data<__half>();
-  __half* out_cpu_data = Out_cpu.mutable_data<__half>();
-  CopySync<TARGET(kCUDA)>(out_cpu_data,
-                          out_gpu_data,
-                          sizeof(__half) * Out_gpu.numel(),
-                          IoDirection::DtoH);
-
-  for (int i = 0; i < Out_cpu.numel(); ++i) {
-    float res = static_cast<float>(lite::cuda::float16(out_cpu_data[i]));
-    float ref = Out_ref.data<float>()[i];
-    EXPECT_NEAR(fabs(res - ref) / (ref + 1e-5), 0., 1e-2);
-  }
-}
 
 TEST_F(SearchFCTest, TestFP32) {
   float_data_init();
@@ -197,6 +173,42 @@ TEST_F(SearchFCTest, TestFP32) {
 
   for (int i = 0; i < Out_gpu.numel(); ++i) {
     EXPECT_NEAR(Out_cpu.data<float>()[i], Out_ref.data<float>()[i], 5e-4);
+  }
+}
+
+TEST_F(SearchFCTest, TestFP16) {
+  half_data_init();
+  SearchFcCompute<half, PRECISION(kFP16)> search_fc_kernel;
+  search_fc_kernel.SetParam(param);
+  search_fc_kernel.SetContext(std::move(ctx));
+
+  for (int i = 0; i < FLAGS_warmup; ++i) {
+    search_fc_kernel.Launch();
+    cudaDeviceSynchronize();
+  }
+
+  auto start = GetCurrentUS();
+  search_fc_kernel.PrepareForRun();
+  for (int i = 0; i < FLAGS_repeats; ++i) {
+    search_fc_kernel.Run();
+  }
+  cudaDeviceSynchronize();
+  auto duration = (GetCurrentUS() - start) / 1000.0;
+  LOG(INFO) << "fp16, warmup: " << FLAGS_warmup
+            << ", repeats: " << FLAGS_repeats << ", spend "
+            << duration / FLAGS_repeats << " ms in average.";
+
+  const half* out_gpu_data = Out_gpu.data<half>();
+  half* out_cpu_data = Out_cpu.mutable_data<half>();
+  CopySync<TARGET(kCUDA)>(out_cpu_data,
+                          out_gpu_data,
+                          sizeof(half) * Out_gpu.numel(),
+                          IoDirection::DtoH);
+
+  for (int i = 0; i < Out_cpu.numel(); ++i) {
+    float res = static_cast<float>(lite::cuda::float16(out_cpu_data[i]));
+    float ref = Out_ref.data<float>()[i];
+    EXPECT_NEAR(fabs(res - ref) / (ref + 1e-5), 0., 1e-2);
   }
 }
 

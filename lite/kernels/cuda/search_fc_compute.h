@@ -37,9 +37,6 @@ class SearchFcCompute : public KernelLite<TARGET(kCUDA), PType> {
   int _M;
   int _K;
   int _N;
-  const lite::Tensor* b_tensor_;
-  const lite::Tensor* w_tensor_;
-  lite::Tensor b_half_tensor_, w_half_tensor_;
 };
 
 }  // namespace cuda

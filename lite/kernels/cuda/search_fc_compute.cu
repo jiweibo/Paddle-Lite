@@ -11,7 +11,6 @@ limitations under the License. */
 
 #pragma once
 #include "lite/backends/cuda/math/bias.h"
-#include "lite/backends/cuda/math/type_trans.h"
 #include "lite/core/op_registry.h"
 #include "lite/kernels/cuda/search_fc_compute.h"
 
@@ -20,32 +19,9 @@ namespace lite {
 namespace kernels {
 namespace cuda {
 
-template <>
-void SearchFcCompute<float, PRECISION(kFloat)>::PrepareForRun() {
-  gemm_impl_.reset(new lite::cuda::math::Gemm<float, float>);
-  auto& param = this->Param<param_t>();
-  w_tensor_ = param.W;
-  b_tensor_ = param.b;
-}
-
-template <>
-void SearchFcCompute<half, PRECISION(kFP16)>::PrepareForRun() {
-  gemm_impl_.reset(new lite::cuda::math::Gemm<half, half>);
-  auto& param = this->Param<param_t>();
-  w_half_tensor_.Resize(param.W->dims());
-  lite::cuda::math::fp32_to_fp16(
-      param.W->numel(),
-      param.W->data<float>(),
-      w_half_tensor_.mutable_data<half>(TARGET(kCUDA)));
-  w_half_tensor_.set_lod(param.W->lod());
-  w_tensor_ = &w_half_tensor_;
-  b_half_tensor_.Resize(param.b->dims());
-  lite::cuda::math::fp32_to_fp16(
-      param.b->numel(),
-      param.b->data<float>(),
-      b_half_tensor_.mutable_data<half>(TARGET(kCUDA)));
-  b_half_tensor_.set_lod(param.b->lod());
-  b_tensor_ = &b_half_tensor_;
+template <typename T, PrecisionType PType>
+void SearchFcCompute<T, PType>::PrepareForRun() {
+  gemm_impl_.reset(new lite::cuda::math::Gemm<T, T>);
 }
 
 template <typename T, PrecisionType PType>
@@ -61,8 +37,8 @@ void SearchFcCompute<T, PType>::Run() {
   const auto* din = x_tensor->data<T>();
   Tensor* out_tensor = param.Out;
   auto* dout = out_tensor->mutable_data<T>(TARGET(kCUDA));
-  const auto* weight = w_tensor_->data<T>();
-  const auto* bias = b_tensor_->data<T>();
+  const auto* weight = param.W->template data<T>();
+  const auto* bias = param.b->template data<T>();
   CHECK(gemm_impl_->init(false, true, _M, _N, _K, &ctx));
   gemm_impl_->run(
       __float2half(1.0f), __float2half(0.0f), din, weight, dout, &ctx);
@@ -90,7 +66,7 @@ REGISTER_LITE_KERNEL(search_fc, kCUDA, kFloat, kNCHW, FCFp32, def)
 
 REGISTER_LITE_KERNEL(search_fc, kCUDA, kFP16, kNCHW, FCFp16, def)
     .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
-    .BindInput("W", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFloat))})
-    .BindInput("b", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFloat))})
+    .BindInput("W", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
+    .BindInput("b", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
     .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
     .Finalize();
