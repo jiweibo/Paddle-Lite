@@ -12,7 +12,6 @@ limitations under the License. */
 #pragma once
 #include <algorithm>
 #include <vector>
-#include "lite/backends/cuda/math/type_trans.h"
 #include "lite/core/op_registry.h"
 #include "lite/kernels/cuda/match_matrix_tensor_compute.h"
 
@@ -99,24 +98,9 @@ __global__ void padding_out(const dtype* src,
   }
 }
 
-template <>
-void MatchMatrixTensorCompute<float, PRECISION(kFloat)>::PrepareForRun() {
-  gemm_impl_.reset(new lite::cuda::math::Gemm<float, float>);
-  auto& param = this->Param<param_t>();
-  w_tensor_ = param.w;
-}
-
-template <>
-void MatchMatrixTensorCompute<half, PRECISION(kFP16)>::PrepareForRun() {
-  gemm_impl_.reset(new lite::cuda::math::Gemm<half, half>);
-  auto& param = this->Param<param_t>();
-  w_half_tensor_.Resize(param.w->dims());
-  lite::cuda::math::fp32_to_fp16(
-      param.w->numel(),
-      param.w->data<float>(),
-      w_half_tensor_.mutable_data<half>(TARGET(kCUDA)));
-  w_half_tensor_.set_lod(param.w->lod());
-  w_tensor_ = &w_half_tensor_;
+template <typename T, PrecisionType PType>
+void MatchMatrixTensorCompute<T, PType>::PrepareForRun() {
+  gemm_impl_.reset(new lite::cuda::math::Gemm<T, T>);
 }
 
 template <typename T, PrecisionType PType>
@@ -127,7 +111,7 @@ void MatchMatrixTensorCompute<T, PType>::Run() {
   auto stream = context.exec_stream();
 
   auto* x = param.x;
-  auto* w = w_tensor_;
+  auto* w = param.w;
   auto* y = param.y;
   auto* out = param.out;
   auto* tmp = param.tmp;
@@ -247,7 +231,7 @@ REGISTER_LITE_KERNEL(match_matrix_tensor, kCUDA, kFP16, kNCHW, MMTFp16, def)
                                       DATALAYOUT(kNCHW))})
     .BindInput("W",
                {LiteType::GetTensorTy(TARGET(kCUDA),
-                                      PRECISION(kFloat),
+                                      PRECISION(kFP16),
                                       DATALAYOUT(kNCHW))})
     .BindInput("Y",
                {LiteType::GetTensorTy(TARGET(kCUDA),

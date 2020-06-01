@@ -13,7 +13,6 @@ limitations under the License. */
 #include <algorithm>
 #include <vector>
 #include "lite/backends/cuda/math/transpose.h"
-#include "lite/backends/cuda/math/type_trans.h"
 #include "lite/core/op_registry.h"
 #include "lite/kernels/cuda/search_grnn_compute.h"
 

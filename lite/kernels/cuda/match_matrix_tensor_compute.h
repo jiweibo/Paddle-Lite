@@ -39,8 +39,6 @@ class MatchMatrixTensorCompute
   lite::Tensor _input_l_transform_reorganize;
   lite::Tensor _output_tmp;
   lite::Tensor _offset_r;
-  const lite::Tensor* w_tensor_;
-  lite::Tensor w_half_tensor_;
 };
 
 }  // namespace cuda
