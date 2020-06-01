@@ -18,7 +18,7 @@
 #include <utility>
 #include <vector>
 #include "lite/api/test_helper.h"
-#include "lite/backends/cuda/float16.h"
+#include "lite/utils/float16.h"
 
 namespace paddle {
 namespace lite {
@@ -92,7 +92,7 @@ class SearchSeqFCTest : public ::testing::Test {
     X_half.Resize(lite::DDim(x_shape));
     auto x_half_data = X_half.mutable_data<__half>();
     for (int64_t i = 0; i < X_half.numel(); i++) {
-      x_half_data[i] = half(lite::cuda::float16(X_ref.data<float>()[i]));
+      x_half_data[i] = half(lite::float16(X_ref.data<float>()[i]));
     }
     X_gpu.Assign<__half, lite::DDim, TARGET(kCUDA)>(x_half_data, X_gpu.dims());
   }
@@ -195,7 +195,7 @@ TEST_F(SearchSeqFCTest, TestFP16) {
                           IoDirection::DtoH);
 
   for (int i = 0; i < Out_cpu.numel(); ++i) {
-    float res = static_cast<float>(lite::cuda::float16(out_cpu_data[i]));
+    float res = static_cast<float>(lite::float16(out_cpu_data[i]));
     float ref = Out_ref.data<float>()[i];
     EXPECT_NEAR(fabs(res - ref) / (ref + 1e-5), 0., 1e-2);
   }

@@ -18,7 +18,7 @@
 #include <utility>
 #include <vector>
 #include "lite/api/test_helper.h"
-#include "lite/backends/cuda/float16.h"
+#include "lite/utils/float16.h"
 
 namespace paddle {
 namespace lite {
@@ -84,7 +84,7 @@ class SearchSeqDepaddingTest : public ::testing::Test {
     pad_half.Resize(pad_ref.dims());
     auto pad_half_data = pad_half.mutable_data<half>();
     for (int64_t i = 0; i < pad_half.numel(); i++) {
-      pad_half_data[i] = half(lite::cuda::float16(pad_ref.data<float>()[i]));
+      pad_half_data[i] = half(lite::float16(pad_ref.data<float>()[i]));
     }
     pad_gpu.Assign<half, lite::DDim, TARGET(kCUDA)>(pad_half_data,
                                                     pad_gpu.dims());
@@ -92,7 +92,7 @@ class SearchSeqDepaddingTest : public ::testing::Test {
     src_half.Resize(src_ref.dims());
     auto src_half_data = src_half.mutable_data<half>();
     for (int64_t i = 0; i < src_half.numel(); i++) {
-      src_half_data[i] = half(lite::cuda::float16(src_ref.data<float>()[i]));
+      src_half_data[i] = half(lite::float16(src_ref.data<float>()[i]));
     }
     src_gpu.Assign<half, lite::DDim, TARGET(kCUDA)>(src_half_data,
                                                     src_gpu.dims());
@@ -182,7 +182,7 @@ TEST_F(SearchSeqDepaddingTest, TestFP16) {
                           IoDirection::DtoH);
 
   for (int i = 0; i < out_cpu.numel(); ++i) {
-    float res = static_cast<float>(lite::cuda::float16(out_cpu_data[i]));
+    float res = static_cast<float>(lite::float16(out_cpu_data[i]));
     float ref = out_ref.data<float>()[i];
     EXPECT_NEAR(fabs(res - ref) / (ref + 1e-5), 0., 1e-3);
   }

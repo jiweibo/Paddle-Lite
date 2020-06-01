@@ -23,7 +23,7 @@
 #include <vector>
 
 #include "lite/api/test_helper.h"
-#include "lite/backends/cuda/float16.h"
+#include "lite/utils/float16.h"
 
 namespace paddle {
 namespace lite {
@@ -88,13 +88,13 @@ class ConcatTest : public ::testing::Test {
     auto x2_half_data = x2_half.mutable_data<half>();
     auto x3_half_data = x3_half.mutable_data<half>();
     for (int64_t i = 0; i < x1_half.numel(); i++) {
-      x1_half_data[i] = half(lite::cuda::float16(x1_ref.data<float>()[i]));
+      x1_half_data[i] = half(lite::float16(x1_ref.data<float>()[i]));
     }
     for (int64_t i = 0; i < x2_half.numel(); i++) {
-      x2_half_data[i] = half(lite::cuda::float16(x2_ref.data<float>()[i]));
+      x2_half_data[i] = half(lite::float16(x2_ref.data<float>()[i]));
     }
     for (int64_t i = 0; i < x3_half.numel(); i++) {
-      x3_half_data[i] = half(lite::cuda::float16(x3_ref.data<float>()[i]));
+      x3_half_data[i] = half(lite::float16(x3_ref.data<float>()[i]));
     }
     x1_gpu.Assign<__half, lite::DDim, TARGET(kCUDA)>(x1_half_data,
                                                      x1_gpu.dims());
@@ -213,7 +213,7 @@ TEST_F(ConcatTest, TestFP16) {
                           IoDirection::DtoH);
 
   for (int i = 0; i < y_cpu.numel(); ++i) {
-    float res = static_cast<float>(lite::cuda::float16(y_cpu_data[i]));
+    float res = static_cast<float>(lite::float16(y_cpu_data[i]));
     float ref = y_ref.data<float>()[i];
     EXPECT_NEAR(fabs(res - ref) / (ref + 1e-5), 0., 1e-3);
   }

@@ -9,8 +9,3 @@ nv_library(cuda_blas SRCS blas.cc DEPS ${cuda_deps})
 lite_cc_library(cuda_context SRCS context.cc DEPS device_info)
  
 add_subdirectory(math)
-
-if (WITH_TESTING)
-    nv_test(float16_gpu_test SRCS float16_test.cu)
-    lite_cc_test(float16_test SRCS float16_test.cc)
-endif()

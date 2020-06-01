@@ -21,8 +21,8 @@
 #include <vector>
 
 #include "lite/api/test_helper.h"
-#include "lite/backends/cuda/float16.h"
 #include "lite/core/op_registry.h"
+#include "lite/utils/float16.h"
 
 namespace paddle {
 namespace lite {
@@ -77,7 +77,7 @@ class SearchGroupPaddingTest : public ::testing::Test {
     x_half.Resize(x_ref.dims());
     auto x_half_data = x_half.mutable_data<half>();
     for (int64_t i = 0; i < x_half.numel(); i++) {
-      x_half_data[i] = half(lite::cuda::float16(x_ref.data<float>()[i]));
+      x_half_data[i] = half(lite::float16(x_ref.data<float>()[i]));
     }
     x_gpu.Resize(x_ref.dims());
     x_gpu.Assign<half, lite::DDim, TARGET(kCUDA)>(x_half_data, x_gpu.dims());

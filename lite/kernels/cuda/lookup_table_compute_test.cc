@@ -20,8 +20,8 @@
 #include <utility>
 #include <vector>
 #include "lite/api/test_helper.h"
-#include "lite/backends/cuda/float16.h"
 #include "lite/core/op_registry.h"
+#include "lite/utils/float16.h"
 
 namespace paddle {
 namespace lite {
@@ -161,7 +161,7 @@ TEST_F(LookUpTableTest, TestFP16) {
   half_data_init();
   auto& context = ctx->As<CUDAContext>();
   context.SetExecStream(stream);
-  LookupTableCompute<__half, PRECISION(kFP16)> lkt_kernel;
+  LookupTableCompute<half, PRECISION(kFP16)> lkt_kernel;
   lkt_kernel.SetParam(param);
   lkt_kernel.SetContext(std::move(ctx));
 
@@ -180,15 +180,15 @@ TEST_F(LookUpTableTest, TestFP16) {
             << ", repeats: " << FLAGS_repeats << ", spend "
             << duration / FLAGS_repeats << " ms in average.";
 
-  const __half* out_gpu_data = Out_gpu.data<__half>();
-  __half* out_cpu_data = Out_cpu.mutable_data<__half>();
+  const half* out_gpu_data = Out_gpu.data<half>();
+  half* out_cpu_data = Out_cpu.mutable_data<half>();
   CopySync<TARGET(kCUDA)>(out_cpu_data,
                           out_gpu_data,
                           sizeof(__half) * Out_gpu.numel(),
                           IoDirection::DtoH);
 
   for (int i = 0; i < Out_cpu.numel(); ++i) {
-    float res = static_cast<float>(lite::cuda::float16(out_cpu_data[i]));
+    float res = static_cast<float>(lite::float16(out_cpu_data[i]));
     float ref = Out_ref.data<float>()[i];
     EXPECT_NEAR(fabs(res - ref) / (ref + 1e-5), 0., 5e-3);
   }

@@ -18,7 +18,7 @@
 #include <utility>
 #include <vector>
 #include "lite/api/test_helper.h"
-#include "lite/backends/cuda/float16.h"
+#include "lite/utils/float16.h"
 
 namespace paddle {
 namespace lite {
@@ -69,7 +69,7 @@ class SequenceReverseTest : public ::testing::Test {
     x_half.Resize(lite::DDim(shape_info));
     auto x_half_data = x_half.mutable_data<half>();
     for (int64_t i = 0; i < x_half.numel(); i++) {
-      x_half_data[i] = half(lite::cuda::float16(x_ref.data<float>()[i]));
+      x_half_data[i] = half(lite::float16(x_ref.data<float>()[i]));
     }
     x_gpu.Assign<__half, lite::DDim, TARGET(kCUDA)>(x_half_data, x_gpu.dims());
     x_gpu.set_lod(x_ref.lod());
@@ -170,7 +170,7 @@ TEST_F(SequenceReverseTest, TestFP16) {
                           IoDirection::DtoH);
 
   for (int i = 0; i < y_cpu.numel(); ++i) {
-    float res = static_cast<float>(lite::cuda::float16(y_cpu_data[i]));
+    float res = static_cast<float>(lite::float16(y_cpu_data[i]));
     float ref = y_ref.data<float>()[i];
     EXPECT_NEAR(fabs(res - ref) / (ref + 1e-5), 0., 1e-3);
   }
