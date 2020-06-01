@@ -93,6 +93,8 @@ class MatchMatrixTest : public ::testing::Test {
   void device_init() {
     ctx.reset(new KernelContext);
     cudaStreamCreate(&stream);
+    auto& context = ctx->As<CUDAContext>();
+    context.SetExecStream(stream);
     param.x = &X_gpu;
     param.w = &W_gpu;
     param.y = &Y_gpu;
@@ -163,8 +165,6 @@ class MatchMatrixTest : public ::testing::Test {
 
 TEST_F(MatchMatrixTest, TestFP32) {
   float_data_init();
-  auto& context = ctx->As<CUDAContext>();
-  context.SetExecStream(stream);
   MatchMatrixTensorCompute<float, PRECISION(kFloat)> match_matrix_kernel;
   match_matrix_kernel.SetParam(param);
   match_matrix_kernel.SetContext(std::move(ctx));
@@ -196,8 +196,6 @@ TEST_F(MatchMatrixTest, TestFP32) {
 
 TEST_F(MatchMatrixTest, TestFP16) {
   half_data_init();
-  auto& context = ctx->As<CUDAContext>();
-  context.SetExecStream(stream);
   MatchMatrixTensorCompute<half, PRECISION(kFP16)> match_matrix_kernel;
   match_matrix_kernel.SetParam(param);
   match_matrix_kernel.SetContext(std::move(ctx));
