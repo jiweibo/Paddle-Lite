@@ -1,11 +1,8 @@
 /* Copyright (c) 2019 PaddlePaddle Authors. All Rights Reserved.
-
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
-
     http://www.apache.org/licenses/LICENSE-2.0
-
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -66,11 +63,11 @@ __global__ void eliminate_pad_effect(dtype* src,
   }
 }
 
-template <>
-void VarConv2DCompute<float, PRECISION(kFloat)>::PrepareForRun() {
+template <typename T, PrecisionType PType>
+void VarConv2DCompute<T, PType>::PrepareForRun() {
   auto& context = this->ctx_->template As<CUDAContext>();
   auto stream = context.exec_stream();
-  auto& param = this->Param<param_t>();
+  auto& param = this->template Param<param_t>();
   conv_param_.x = const_cast<lite::Tensor*>(param.X);
   conv_param_.var_length = true;
 
@@ -107,57 +104,7 @@ void VarConv2DCompute<float, PRECISION(kFloat)>::PrepareForRun() {
     conv_param_.activation_param.active_type = lite_api::ActivationType::kRelu;
   }
   conv_param_.output->Resize({output_shape});
-  conv_impl_.reset(new lite::cuda::math::CudnnConv2D<float, PRECISION(kFloat)>);
-  conv_impl_->init(conv_param_, &context);
-}
-
-template <>
-void VarConv2DCompute<half, PRECISION(kFP16)>::PrepareForRun() {
-  auto& context = this->ctx_->template As<CUDAContext>();
-  auto stream = context.exec_stream();
-  auto& param = this->Param<param_t>();
-  conv_param_.x = const_cast<lite::Tensor*>(param.X);
-  conv_param_.var_length = true;
-
-  conv_param_.paddings.reset(new std::vector<int>);
-  conv_param_.paddings->push_back(static_cast<int>(param.kernel_h / 2));
-  conv_param_.paddings->push_back(static_cast<int>(param.kernel_h / 2));
-  conv_param_.paddings->push_back(static_cast<int>(param.kernel_w / 2));
-  conv_param_.paddings->push_back(static_cast<int>(param.kernel_w / 2));
-  conv_param_.dilations.reset(new std::vector<int>);
-  conv_param_.dilations->push_back(1);
-  conv_param_.dilations->push_back(1);
-  conv_param_.strides[0] = param.stride_h;
-  conv_param_.strides[1] = param.stride_w;
-
-  w_half_tensor_.Resize({param.output_channel,
-                         param.input_channel,
-                         param.kernel_h,
-                         param.kernel_w});
-  lite::cuda::math::fp32_to_fp16(
-      param.W->numel(),
-      param.W->data<float>(),
-      w_half_tensor_.mutable_data<half>(TARGET(kCUDA)));
-  w_half_tensor_.set_lod(param.W->lod());
-  conv_param_.filter = &w_half_tensor_;
-  conv_param_.output = param.Out;
-  std::vector<int64_t> output_shape(
-      {conv_param_.x->dims()[0], param.output_channel});
-  for (size_t i = 0; i < conv_param_.strides.size(); ++i) {
-    output_shape.push_back(
-        ConvOutputSize(conv_param_.x->dims()[i + 2],
-                       conv_param_.filter->dims()[i + 2],
-                       (*conv_param_.dilations.get())[i],
-                       (*conv_param_.paddings.get())[i * 2],
-                       (*conv_param_.paddings.get())[i * 2 + 1],
-                       conv_param_.strides[i]));
-  }
-  if (param.fuse_relu) {
-    conv_param_.activation_param.has_active = true;
-    conv_param_.activation_param.active_type = lite_api::ActivationType::kRelu;
-  }
-  conv_param_.output->Resize({output_shape});
-  conv_impl_.reset(new lite::cuda::math::CudnnConv2D<half, PRECISION(kFP16)>);
+  conv_impl_.reset(new lite::cuda::math::CudnnConv2D<T, PType>);
   conv_impl_->init(conv_param_, &context);
 }
 
@@ -243,7 +190,7 @@ REGISTER_LITE_KERNEL(var_conv_2d, kCUDA, kFloat, kNCHW, VarConvFp32, def)
 
 REGISTER_LITE_KERNEL(var_conv_2d, kCUDA, kFP16, kNCHW, VarConvFp16, def)
     .BindInput("X", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
-    .BindInput("W", {LiteType::GetTensorTy(TARGET(kCUDA))})
+    .BindInput("W", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
     .BindOutput("Out", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
     .BindOutput("Col", {LiteType::GetTensorTy(TARGET(kCUDA), PRECISION(kFP16))})
     .Finalize();

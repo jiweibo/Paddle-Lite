@@ -18,7 +18,7 @@
 #include <utility>
 #include <vector>
 #include "lite/api/test_helper.h"
-#include "lite/backends/cuda/float16.h"
+#include "lite/utils/float16.h"
 
 namespace paddle {
 namespace lite {
@@ -222,25 +222,31 @@ class VarConvTest : public ::testing::Test {
     param.kernel_w = kernel_w;
     param.input_channel = in_channels;
     param.output_channel = out_channels;
-
-    W_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(W_ref.data<float>(),
-                                                   W_gpu.dims());
   }
 
   void float_data_init() {
     X_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(X_ref.data<float>(),
                                                    X_gpu.dims());
     X_gpu.set_lod(X_ref.lod());
+    W_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(W_ref.data<float>(),
+                                                   W_gpu.dims());
   }
 
   void half_data_init() {
     X_half.Resize(lite::DDim(x_shape));
     auto x_half_data = X_half.mutable_data<__half>();
     for (int64_t i = 0; i < X_half.numel(); i++) {
-      x_half_data[i] = half(lite::cuda::float16(X_ref.data<float>()[i]));
+      x_half_data[i] = half(lite::float16(X_ref.data<float>()[i]));
     }
     X_gpu.Assign<__half, lite::DDim, TARGET(kCUDA)>(x_half_data, X_gpu.dims());
     X_gpu.set_lod(X_ref.lod());
+
+    W_half.Resize(W_ref.dims());
+    auto w_half_data = W_half.mutable_data<half>();
+    for (int64_t i = 0; i < W_half.numel(); i++) {
+      w_half_data[i] = half(lite::float16(W_ref.data<float>()[i]));
+    }
+    W_gpu.Assign<half, lite::DDim, TARGET(kCUDA)>(w_half_data, W_gpu.dims());
   }
 
   void conv_cpu_base(const lite::Tensor* X,
@@ -269,7 +275,7 @@ class VarConvTest : public ::testing::Test {
   std::vector<int64_t> x_shape, w_shape, out_shape;
   lite::Tensor X_ref, W_ref, Out_ref, Col_ref;
   lite::Tensor X_gpu, W_gpu;
-  lite::Tensor X_half;
+  lite::Tensor X_half, W_half;
   lite::Tensor Out_cpu, Out_gpu;
 
   operators::VarConv2DParam param;
@@ -339,7 +345,7 @@ TEST_F(VarConvTest, TestFP16) {
                           IoDirection::DtoH);
 
   for (int i = 0; i < Out_cpu.numel(); ++i) {
-    float res = static_cast<float>(lite::cuda::float16(out_cpu_data[i]));
+    float res = static_cast<float>(lite::float16(out_cpu_data[i]));
     float ref = Out_ref.data<float>()[i];
     EXPECT_NEAR(fabs(res - ref) / (ref + 1e-5), 0., 1e-2);
   }

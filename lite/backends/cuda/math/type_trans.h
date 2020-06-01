@@ -15,7 +15,6 @@
 #pragma once
 #include <cuda.h>
 #include <cuda_runtime.h>
-
 #include "lite/backends/cuda/cuda_utils.h"
 
 namespace paddle {

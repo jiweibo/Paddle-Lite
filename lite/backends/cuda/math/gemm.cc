@@ -97,12 +97,12 @@ bool Gemm<float, float>::run(const float alpha,
 }
 
 template <>
-bool Gemm<__half, __half>::run(const __half alpha,
-                               const __half beta,
-                               const __half *a,
-                               const __half *b,
-                               __half *c,
-                               Context<TARGET(kCUDA)> *ctx) {
+bool Gemm<half, half>::run(const half alpha,
+                           const half beta,
+                           const half *a,
+                           const half *b,
+                           half *c,
+                           Context<TARGET(kCUDA)> *ctx) {
   CUBLAS_CALL(cublasHgemm(cu_handle_,
                           cu_trans_b_,
                           cu_trans_a_,
@@ -121,7 +121,7 @@ bool Gemm<__half, __half>::run(const __half alpha,
 }
 
 template class Gemm<float, float>;
-template class Gemm<__half, __half>;
+template class Gemm<half, half>;
 
 }  // namespace math
 }  // namespace cuda
