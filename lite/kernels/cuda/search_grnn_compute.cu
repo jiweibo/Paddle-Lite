@@ -194,19 +194,9 @@ bool SeqSortedseqTranseUtil::get_sorted_map(const std::vector<int>& offset_vec,
   return true;
 }
 
-template <typename Dtype>
-__global__ void transpose_2d(Dtype* output, const Dtype* input, int m, int n) {
-  int tid = blockIdx.x * blockDim.x + threadIdx.x;
-  if (tid < m * n) {
-    int i = tid / n;
-    int j = tid % m;
-    output[tid] = input[j * n + i];
-  }
-}
-
-template <>
-void SearchGrnnCompute<float, PRECISION(kFloat)>::WeightsPreprocess() {
-  auto& param = this->Param<param_t>();
+template <typename T, PrecisionType PType>
+void SearchGrnnCompute<T, PType>::WeightsPreprocess() {
+  auto& param = this->template Param<param_t>();
   auto& context = this->ctx_->template As<CUDAContext>();
   auto stream = context.exec_stream();
 
@@ -214,70 +204,22 @@ void SearchGrnnCompute<float, PRECISION(kFloat)>::WeightsPreprocess() {
   DDim hdims = param.wh->dims();
   _wi.Resize({idims[2], idims[0], idims[1]});
   _wh.Resize({hdims[2], hdims[0], hdims[1]});
-  lite::cuda::math::Transpose<float> trans;
-  trans.transpose(_wi.mutable_data<float>(TARGET(kCUDA)),
-                  param.wi->data<float>(),
+  lite::cuda::math::Transpose<T> trans;
+  trans.transpose(_wi.mutable_data<T>(TARGET(kCUDA)),
+                  param.wi->template data<T>(),
                   idims.Vectorize(),
                   {2, 0, 1},
                   &stream);
-  trans.transpose(_wh.mutable_data<float>(TARGET(kCUDA)) + hdims[1] * hdims[2],
-                  param.wh->data<float>() + hdims[1] * hdims[2],
+  trans.transpose(_wh.mutable_data<T>(TARGET(kCUDA)) + hdims[1] * hdims[2],
+                  param.wh->template data<T>() + hdims[1] * hdims[2],
                   {hdims[0] - 1, hdims[1], hdims[2]},
                   {2, 0, 1},
                   &stream);
-  trans.transpose(_wh.mutable_data<float>(TARGET(kCUDA)),
-                  param.wh->data<float>(),
+  trans.transpose(_wh.mutable_data<T>(TARGET(kCUDA)),
+                  param.wh->template data<T>(),
                   {hdims[1], hdims[2]},
                   {1, 0},
                   &stream);
-
-  // int thread_num = 512;
-  // int block_num = (hdims[1] * hdims[2] + thread_num - 1) / thread_num;
-  // transpose_2d<<<block_num, thread_num, 0, stream>>>(
-  //    _wh.mutable_data<float>(TARGET(kCUDA)),
-  //    param.wh->data<float>(),
-  //    hdims[1],
-  //    hdims[2]);
-}
-
-template <>
-void SearchGrnnCompute<half, PRECISION(kFP16)>::WeightsPreprocess() {
-  auto& param = this->Param<param_t>();
-  auto& context = this->ctx_->template As<CUDAContext>();
-  auto stream = context.exec_stream();
-
-  DDim idims = param.wi->dims();
-  DDim hdims = param.wh->dims();
-  _wi.Resize({idims[2], idims[0], idims[1]});
-  _wi_tmp.Resize({idims[2], idims[0], idims[1]});
-  _wh.Resize({hdims[2], hdims[0], hdims[1]});
-  _wh_tmp.Resize({hdims[2], hdims[0], hdims[1]});
-  lite::cuda::math::Transpose<float> trans;
-  trans.transpose(_wi_tmp.mutable_data<float>(TARGET(kCUDA)),
-                  param.wi->data<float>(),
-                  idims.Vectorize(),
-                  {2, 0, 1},
-                  &stream);
-  trans.transpose(
-      _wh_tmp.mutable_data<float>(TARGET(kCUDA)) + hdims[1] * hdims[2],
-      param.wh->data<float>() + hdims[1] * hdims[2],
-      {hdims[0] - 1, hdims[1], hdims[2]},
-      {2, 0, 1},
-      &stream);
-  trans.transpose(_wh_tmp.mutable_data<float>(TARGET(kCUDA)),
-                  param.wh->data<float>(),
-                  {hdims[1], hdims[2]},
-                  {1, 0},
-                  &stream);
-
-  lite::cuda::math::fp32_to_fp16(_wh_tmp.numel(),
-                                 _wh_tmp.data<float>(),
-                                 _wh.mutable_data<half>(TARGET(kCUDA)),
-                                 stream);
-  lite::cuda::math::fp32_to_fp16(_wi_tmp.numel(),
-                                 _wi_tmp.data<float>(),
-                                 _wi.mutable_data<half>(TARGET(kCUDA)),
-                                 stream);
 }
 
 template <typename T, PrecisionType PType>
@@ -288,7 +230,7 @@ void SearchGrnnCompute<T, PType>::PrepareForRun() {
   gemm_impl_.reset(new lite::cuda::math::Gemm<T, T>);
   _seq_util = SeqSortedseqTranseUtil();
 
-  WeightsPreprocess();
+  this->WeightsPreprocess();
 
   int hidden_size = param.num_hidden;
   int word_size = param.num_input;
@@ -617,11 +559,11 @@ REGISTER_LITE_KERNEL(search_grnn, kCUDA, kFP16, kNCHW, GrnnFp16, def)
                                       DATALAYOUT(kNCHW))})
     .BindInput("Wi",
                {LiteType::GetTensorTy(TARGET(kCUDA),
-                                      PRECISION(kFloat),
+                                      PRECISION(kFP16),
                                       DATALAYOUT(kNCHW))})
     .BindInput("Wh",
                {LiteType::GetTensorTy(TARGET(kCUDA),
-                                      PRECISION(kFloat),
+                                      PRECISION(kFP16),
                                       DATALAYOUT(kNCHW))})
     .BindOutput("Out",
                 {LiteType::GetTensorTy(TARGET(kCUDA),

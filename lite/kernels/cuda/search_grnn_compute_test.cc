@@ -82,26 +82,40 @@ class SearchGrnnTest : public ::testing::Test {
     param.tmp_buffer = &tmp_buffer;
     param.num_input = num_input;
     param.num_hidden = num_hidden;
-    Wi_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(Wi_ref.data<float>(),
-                                                    Wi_gpu.dims());
-    Wh_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(Wh_ref.data<float>(),
-                                                    Wh_gpu.dims());
   }
 
   void float_data_init() {
     X_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(X_ref.data<float>(),
                                                    X_gpu.dims());
     X_gpu.set_lod(X_ref.lod());
+    Wi_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(Wi_ref.data<float>(),
+                                                    Wi_gpu.dims());
+    Wh_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(Wh_ref.data<float>(),
+                                                    Wh_gpu.dims());
   }
 
   void half_data_init() {
     X_half.Resize(lite::DDim(x_shape));
-    auto x_half_data = X_half.mutable_data<__half>();
+    auto x_half_data = X_half.mutable_data<half>();
     for (int64_t i = 0; i < X_half.numel(); i++) {
       x_half_data[i] = half(lite::float16(X_ref.data<float>()[i]));
     }
-    X_gpu.Assign<__half, lite::DDim, TARGET(kCUDA)>(x_half_data, X_gpu.dims());
+    X_gpu.Assign<half, lite::DDim, TARGET(kCUDA)>(x_half_data, X_gpu.dims());
     X_gpu.set_lod(X_ref.lod());
+
+    Wi_half.Resize(Wi_ref.dims());
+    auto wi_half_data = Wi_half.mutable_data<half>();
+    for (int64_t i = 0; i < Wi_half.numel(); i++) {
+      wi_half_data[i] = half(lite::float16(Wi_ref.data<float>()[i]));
+    }
+    Wi_gpu.Assign<half, lite::DDim, TARGET(kCUDA)>(wi_half_data, Wi_gpu.dims());
+
+    Wh_half.Resize(Wh_ref.dims());
+    auto wh_half_data = Wh_half.mutable_data<half>();
+    for (int64_t i = 0; i < Wh_half.numel(); i++) {
+      wh_half_data[i] = half(lite::float16(Wh_ref.data<float>()[i]));
+    }
+    Wh_gpu.Assign<half, lite::DDim, TARGET(kCUDA)>(wh_half_data, Wh_gpu.dims());
   }
 
   void cpu_base(const lite::Tensor* X,
@@ -114,7 +128,7 @@ class SearchGrnnTest : public ::testing::Test {
   LoD x_lod;
   lite::Tensor X_ref, Wi_ref, Wh_ref, Out_ref;
   lite::Tensor X_gpu, Wi_gpu, Wh_gpu;
-  lite::Tensor X_half;
+  lite::Tensor X_half, Wi_half, Wh_half;
   lite::Tensor idx_sorted_by_width, layout_input, tmp_buffer;
   lite::Tensor Out_cpu, Out_gpu;
 
@@ -161,7 +175,7 @@ TEST_F(SearchGrnnTest, TestFP16) {
   half_data_init();
   auto& context = ctx->As<CUDAContext>();
   context.SetExecStream(stream);
-  SearchGrnnCompute<__half, PRECISION(kFP16)> search_grnn_kernel;
+  SearchGrnnCompute<half, PRECISION(kFP16)> search_grnn_kernel;
   search_grnn_kernel.SetParam(param);
   search_grnn_kernel.SetContext(std::move(ctx));
 
@@ -181,11 +195,11 @@ TEST_F(SearchGrnnTest, TestFP16) {
             << ", repeats: " << FLAGS_repeats << ", spend "
             << duration / FLAGS_repeats << " ms in average.";
 
-  const __half* out_gpu_data = Out_gpu.data<__half>();
-  __half* out_cpu_data = Out_cpu.mutable_data<__half>();
+  const half* out_gpu_data = Out_gpu.data<half>();
+  half* out_cpu_data = Out_cpu.mutable_data<half>();
   CopySync<TARGET(kCUDA)>(out_cpu_data,
                           out_gpu_data,
-                          sizeof(__half) * Out_gpu.numel(),
+                          sizeof(half) * Out_gpu.numel(),
                           IoDirection::DtoH);
 
   for (int i = 0; i < Out_cpu.numel(); ++i) {

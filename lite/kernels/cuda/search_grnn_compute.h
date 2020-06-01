@@ -102,8 +102,6 @@ class SearchGrnnCompute
 
   lite::Tensor _wi;
   lite::Tensor _wh;
-  // for fp16
-  lite::Tensor _wi_tmp, _wh_tmp;
 
   SeqSortedseqTranseUtil _seq_util;
 };

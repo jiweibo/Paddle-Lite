@@ -192,6 +192,7 @@ void Transpose<T>::transpose(T* dst,
 
 template class Transpose<int8_t>;
 template class Transpose<float>;
+template class Transpose<half>;
 
 }  // namespace math
 }  // namespace cuda
