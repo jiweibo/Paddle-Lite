@@ -42,7 +42,6 @@ class LookUpTableTest : public ::testing::Test {
     Ids_gpu.Resize(lite::DDim(ids_shape));
     Ids_ref.Resize(lite::DDim(ids_shape));
 
-    W_gpu.Resize(lite::DDim(w_shape));
     W_ref.Resize(lite::DDim(w_shape));
 
     auto ids_ref_data = Ids_ref.mutable_data<int64_t>();
@@ -74,13 +73,23 @@ class LookUpTableTest : public ::testing::Test {
 
     Ids_gpu.Assign<int64_t, lite::DDim, TARGET(kCUDA)>(Ids_ref.data<int64_t>(),
                                                        Ids_gpu.dims());
+  }
+
+  void float_data_init() {
+    W_gpu.Resize(W_ref.dims());
     W_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(W_ref.data<float>(),
                                                    W_gpu.dims());
   }
 
-  void float_data_init() {}
-
-  void half_data_init() {}
+  void half_data_init() {
+    W_gpu.Resize(W_ref.dims());
+    W_half.Resize(W_ref.dims());
+    auto w_half_data = W_half.mutable_data<half>();
+    for (int64_t i = 0; i < W_half.numel(); i++) {
+      w_half_data[i] = half(lite::float16(W_ref.data<float>()[i]));
+    }
+    W_gpu.Assign<half, lite::DDim, TARGET(kCUDA)>(w_half_data, W_gpu.dims());
+  }
 
   void cpu_ref(const lite::Tensor* ids_t,
                const lite::Tensor* table_t,
@@ -118,6 +127,7 @@ class LookUpTableTest : public ::testing::Test {
   lite::Tensor Ids_ref, W_ref, Out_ref;
   lite::Tensor Ids_gpu, W_gpu;
   lite::Tensor Out_cpu, Out_gpu;
+  lite::Tensor W_half;
 
   operators::LookupTableParam param;
   std::unique_ptr<KernelContext> ctx;
