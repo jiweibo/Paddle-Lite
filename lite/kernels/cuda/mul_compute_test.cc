@@ -16,59 +16,175 @@
 #include <gtest/gtest.h>
 #include <memory>
 #include <utility>
-#include "lite/backends/cuda/blas.h"
+#include <vector>
+#include "lite/api/test_helper.h"
+#include "lite/utils/float16.h"
 
 namespace paddle {
 namespace lite {
 namespace kernels {
 namespace cuda {
 
-TEST(mul_compute, normal) {
-  MulCompute mul_kernel;
-  std::unique_ptr<KernelContext> ctx(new KernelContext);
-  auto& context = ctx->As<CUDAContext>();
-  context.InitOnce();
+class MulTest : public ::testing::Test {
+ protected:
+  MulTest()
+      : m(2), k(3), n(4), x_shape({m, k}), y_shape({k, n}), out_shape({m, n}) {
+    X_gpu.Resize(lite::DDim(x_shape));
+    X_ref.Resize(lite::DDim(x_shape));
 
-  Tensor x, y, out, x_cpu, y_cpu, out_cpu;
-  int x_h = 2, x_w_y_h = 3, y_w = 4;
-  out.Resize({x_h, y_w});
-  x_cpu.Resize({x_h, x_w_y_h});
-  y_cpu.Resize({x_w_y_h, y_w});
-  out_cpu.Resize({x_h, y_w});
+    Y_gpu.Resize(lite::DDim(y_shape));
+    Y_ref.Resize(lite::DDim(y_shape));
 
-  auto* out_data = out.mutable_data<float>(TARGET(kCUDA));
-  float* x_cpu_data = x_cpu.mutable_data<float>();
-  float* y_cpu_data = y_cpu.mutable_data<float>();
-  float* out_cpu_data = out_cpu.mutable_data<float>();
+    auto x_ref_data = X_ref.mutable_data<float>();
+    auto y_ref_data = Y_ref.mutable_data<float>();
 
-  for (int i = 0; i < x_cpu.numel(); i++) {
-    x_cpu_data[i] = i + 1.0;
+    // prepare input
+    for (int64_t i = 0; i < X_ref.numel(); i++) {
+      x_ref_data[i] = static_cast<float>(i % 10 * 0.2);
+    }
+    for (int64_t i = 0; i < Y_ref.numel(); i++) {
+      y_ref_data[i] = static_cast<float>(i % 10 * 0.2);
+    }
+
+    Out_ref.Resize(lite::DDim(out_shape));
+    Out_cpu.Resize(lite::DDim(out_shape));
+    Out_gpu.Resize(lite::DDim(out_shape));
+    fc_cpu_base(&X_ref, &Y_ref, &Out_ref);
+
+    device_init();
   }
-  for (int i = 0; i < y_cpu.numel(); i++) {
-    y_cpu_data[i] = i + 1.0;
+
+  void device_init() {
+    ctx.reset(new KernelContext);
+    cudaStreamCreate(&stream);
+    auto& context = ctx->As<CUDAContext>();
+    context.SetExecStream(stream);
+    param.x = &X_gpu;
+    param.y = &Y_gpu;
+    param.output = &Out_gpu;
   }
 
-  x.Assign<float, lite::DDim, TARGET(kCUDA)>(x_cpu_data, x_cpu.dims());
-  y.Assign<float, lite::DDim, TARGET(kCUDA)>(y_cpu_data, y_cpu.dims());
+  void float_data_init() {
+    X_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(X_ref.data<float>(),
+                                                   X_gpu.dims());
+    Y_gpu.Assign<float, lite::DDim, TARGET(kCUDA)>(Y_ref.data<float>(),
+                                                   Y_gpu.dims());
+  }
+
+  void half_data_init() {
+    X_half.Resize(lite::DDim(X_ref.dims()));
+    auto x_half_data = X_half.mutable_data<half>();
+    for (int64_t i = 0; i < X_half.numel(); i++) {
+      x_half_data[i] = half(lite::float16(X_ref.data<float>()[i]));
+    }
+    X_gpu.Assign<half, lite::DDim, TARGET(kCUDA)>(x_half_data, X_gpu.dims());
+    Y_half.Resize(Y_ref.dims());
+    auto y_half_data = Y_half.mutable_data<half>();
+    for (int64_t i = 0; i < Y_half.numel(); i++) {
+      y_half_data[i] = half(lite::float16(Y_ref.data<float>()[i]));
+    }
+    Y_gpu.Assign<half, lite::DDim, TARGET(kCUDA)>(y_half_data, Y_gpu.dims());
+  }
+
+  void fc_cpu_base(const lite::Tensor* X,
+                   const lite::Tensor* W,
+                   lite::Tensor* Out) {
+    const float* data_in = X->data<float>();
+    const float* weights = W->data<float>();
+    float* data_out = Out->mutable_data<float>();
+    int out_rows = X->dims()[0];
+    int in_cols = X->numel() / out_rows;
+    int out_cols = W->numel() / in_cols;
+    int index_out;
+    for (int i = 0; i < out_rows; i++) {
+      for (int j = 0; j < out_cols; j++) {
+        index_out = i * out_cols + j;
+        data_out[index_out] = 0;
+        for (int k = 0; k < in_cols; k++) {
+          data_out[index_out] +=
+              data_in[i * in_cols + k] * weights[k * out_cols + j];
+        }
+      }
+    }
+  }
+
+  int m, k, n;
+  std::vector<int64_t> x_shape, y_shape, out_shape;
+  lite::Tensor X_ref, Y_ref, Out_ref;
+  lite::Tensor X_gpu, Y_gpu;
+  lite::Tensor X_half, Y_half;
+  lite::Tensor Out_cpu, Out_gpu;
 
   operators::MulParam param;
-  param.x = &x;
-  param.y = &y;
-  param.output = &out;
-  mul_kernel.SetParam(param);
-
+  std::unique_ptr<KernelContext> ctx;
   cudaStream_t stream;
-  cudaStreamCreate(&stream);
-  context.SetExecStream(stream);
+};
 
+TEST_F(MulTest, TestFP32) {
+  float_data_init();
+  MulCompute<float, PRECISION(kFloat)> mul_kernel;
+  mul_kernel.SetParam(param);
   mul_kernel.SetContext(std::move(ctx));
-  mul_kernel.Launch();
-  cudaDeviceSynchronize();
 
-  CopySync<TARGET(kCUDA)>(
-      out_cpu_data, out_data, sizeof(float) * out.numel(), IoDirection::DtoH);
-  for (int i = 0; i < out_cpu.numel(); i++) {
-    LOG(INFO) << out_cpu_data[i];
+  for (int i = 0; i < FLAGS_warmup; ++i) {
+    mul_kernel.Launch();
+    cudaDeviceSynchronize();
+  }
+
+  auto start = GetCurrentUS();
+  mul_kernel.PrepareForRun();
+  for (int i = 0; i < FLAGS_repeats; ++i) {
+    mul_kernel.Run();
+  }
+  cudaDeviceSynchronize();
+  auto duration = (GetCurrentUS() - start) / 1000.0;
+  LOG(INFO) << "fp32, warmup: " << FLAGS_warmup
+            << ", repeats: " << FLAGS_repeats << ", spend "
+            << duration / FLAGS_repeats << " ms in average.";
+
+  CopySync<TARGET(kCUDA)>(Out_cpu.mutable_data<float>(),
+                          Out_gpu.data<float>(),
+                          sizeof(float) * Out_gpu.numel(),
+                          IoDirection::DtoH);
+
+  for (int i = 0; i < Out_gpu.numel(); ++i) {
+    EXPECT_NEAR(Out_cpu.data<float>()[i], Out_ref.data<float>()[i], 1e-5);
+  }
+}
+
+TEST_F(MulTest, TestFP16) {
+  half_data_init();
+  MulCompute<half, PRECISION(kFP16)> mul_kernel;
+  mul_kernel.SetParam(param);
+  mul_kernel.SetContext(std::move(ctx));
+
+  for (int i = 0; i < FLAGS_warmup; ++i) {
+    mul_kernel.Launch();
+    cudaDeviceSynchronize();
+  }
+
+  auto start = GetCurrentUS();
+  mul_kernel.PrepareForRun();
+  for (int i = 0; i < FLAGS_repeats; ++i) {
+    mul_kernel.Run();
+  }
+  cudaDeviceSynchronize();
+  auto duration = (GetCurrentUS() - start) / 1000.0;
+  LOG(INFO) << "fp16, warmup: " << FLAGS_warmup
+            << ", repeats: " << FLAGS_repeats << ", spend "
+            << duration / FLAGS_repeats << " ms in average.";
+
+  const half* out_gpu_data = Out_gpu.data<half>();
+  half* out_cpu_data = Out_cpu.mutable_data<half>();
+  CopySync<TARGET(kCUDA)>(out_cpu_data,
+                          out_gpu_data,
+                          sizeof(half) * Out_gpu.numel(),
+                          IoDirection::DtoH);
+
+  for (int i = 0; i < Out_cpu.numel(); ++i) {
+    float res = static_cast<float>(lite::float16(out_cpu_data[i]));
+    float ref = Out_ref.data<float>()[i];
+    EXPECT_NEAR(fabs(res - ref) / (ref + 1e-5), 0., 1e-2);
   }
 }
 
