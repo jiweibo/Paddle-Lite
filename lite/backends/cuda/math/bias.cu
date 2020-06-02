@@ -39,17 +39,7 @@ __global__ void bias_kernel<half>(int n,
                                   half* dout) {
   int index = blockIdx.x * blockDim.x + threadIdx.x;
 #if __CUDA_ARCH__ >= 530
-  int n2 = n / 2;
-  if (index < n2) {
-    half2* dout2 = reinterpret_cast<half2*>(dout);
-    half2 bias_data;
-    bias_data.x = bias[(2 * index) % output_size];
-    bias_data.y = bias[(2 * index + 1) % output_size];
-    dout2[index] = __hadd2(dout2[index], bias_data);
-  }
-  if (index == 0 && n % 2) {
-    dout[n - 1] = __hadd(dout[n - 1], bias[(n - 1) % output_size]);
-  }
+  dout[index] = __hadd(dout[index], bias[index % output_size]);
 #else
   if (index < n) {
     dout[index] = __float2half(__half2float(dout[index]) +
