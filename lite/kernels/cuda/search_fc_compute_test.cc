@@ -206,7 +206,7 @@ TEST_F(SearchFCTest, TestFP16) {
                           IoDirection::DtoH);
 
   for (int i = 0; i < Out_cpu.numel(); ++i) {
-    float res = static_cast<float>(lite::cuda::float16(out_cpu_data[i]));
+    float res = static_cast<float>(lite::float16(out_cpu_data[i]));
     float ref = Out_ref.data<float>()[i];
     EXPECT_NEAR(fabs(res - ref) / (ref + 1e-5), 0., 1e-2);
   }

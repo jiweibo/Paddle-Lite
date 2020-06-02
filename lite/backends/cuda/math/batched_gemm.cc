@@ -13,9 +13,7 @@
 // limitations under the License.
 
 #include "lite/backends/cuda/math/batched_gemm.h"
-
 #include <iostream>
-
 #include "lite/core/device_info.h"
 
 namespace paddle {
