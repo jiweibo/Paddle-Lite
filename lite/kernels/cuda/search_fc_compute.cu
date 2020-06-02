@@ -40,8 +40,7 @@ void SearchFcCompute<T, PType>::Run() {
   const auto* weight = param.W->template data<T>();
   const auto* bias = param.b->template data<T>();
   CHECK(gemm_impl_->init(false, true, _M, _N, _K, &ctx));
-  gemm_impl_->run(
-      __float2half(1.0f), __float2half(0.0f), din, weight, dout, &ctx);
+  gemm_impl_->run(1.0f, 0.0f, din, weight, dout, &ctx);
 
   int total_size = _M * _N;
   lite::cuda::math::add_bias(total_size, _N, bias, dout, stream);
