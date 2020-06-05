@@ -108,6 +108,9 @@ class LITE_API Predictor {
       bool record_info = false);
   void SaveOpKernelInfo(const std::string& model_dir);
 
+  int GetStreamId() const { return stream_id_; }
+  void SetStreamId(int id) { stream_id_ = id; }
+
   // #ifdef LITE_WITH_TRAIN
   //   void Run(const std::vector<framework::Tensor>& tensors) {
   //     FeedVars(tensors);
@@ -126,6 +129,7 @@ class LITE_API Predictor {
   bool program_generated_{false};
   std::vector<std::string> input_names_;
   std::vector<std::string> output_names_;
+  int stream_id_;
 };
 
 class CxxPaddleApiImpl : public lite_api::PaddlePredictor {
@@ -158,7 +162,7 @@ class CxxPaddleApiImpl : public lite_api::PaddlePredictor {
   std::unique_ptr<lite_api::Tensor> GetMutableTensor(
       const std::string& name) override;
 
-  // Get InputTebsor by name
+  // Get InputTensor by name
   std::unique_ptr<lite_api::Tensor> GetInputByName(
       const std::string& name) override;
 
@@ -166,6 +170,8 @@ class CxxPaddleApiImpl : public lite_api::PaddlePredictor {
       const std::string& model_dir,
       lite_api::LiteModelType model_type = lite_api::LiteModelType::kProtobuf,
       bool record_info = false) override;
+
+  int GetStreamId() override { return raw_predictor_.GetStreamId(); }
 
  private:
   Predictor raw_predictor_;

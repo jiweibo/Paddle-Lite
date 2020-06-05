@@ -42,7 +42,13 @@ void CxxPaddleApiImpl::Init(const lite_api::CxxConfig &config) {
   for (auto &p : places) {
     if (p.target == TARGET(kCUDA)) {
       Env<TARGET(kCUDA)>::Init();
-      if (config_.multi_stream()) {
+      Env<TargetType::kCUDA>::Devs &devs = Env<TargetType::kCUDA>::Global();
+      int dev_id = TargetWrapper<TargetType::kCUDA>::GetCurDevice();
+      devs[dev_id].SetPredictorNum(devs[dev_id].predictor_num() + 1);
+      if (!config_.multi_stream()) {
+        raw_predictor_.SetStreamId(devs[dev_id].predictor_num() %
+                                   lite::kMaxStream);
+      } else {
         passes = {"multi_stream_analysis_pass"};
         VLOG(3) << "add pass: " << passes[0];
       }

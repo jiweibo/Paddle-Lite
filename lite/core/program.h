@@ -120,6 +120,9 @@ struct Instruction {
       return false;
     }
   }
+  void SyncStream() const {
+    kernel_->mutable_context()->As<CUDAContext>().SyncStream();
+  }
   void Sync() const { kernel_->mutable_context()->As<CUDAContext>().Sync(); }
 #endif
 

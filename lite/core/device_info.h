@@ -26,6 +26,8 @@
 namespace paddle {
 namespace lite {
 
+constexpr int kMaxStream = 6;
+
 #if ((defined LITE_WITH_ARM) || (defined LITE_WITH_MLU))
 
 typedef enum {
@@ -159,7 +161,7 @@ class Env {
     static Devs* devs = new Devs();
     return *devs;
   }
-  static void Init(int max_stream = 6) {
+  static void Init(int max_stream = kMaxStream) {
 #ifdef LITE_WITH_MLU
     CNRT_CALL(cnrtInit(0));
 #endif
@@ -288,6 +290,18 @@ class Device<TARGET(kCUDA)> {
   bool has_imma() { return has_fp16_; }
   int runtime_version() { return runtime_version_; }
 
+  // predictor_num is used to record how many predictor instances there are,
+  // and can be used to bind streams in a polling manner, for example, set the
+  // max_stream = 4, then:
+  //   predictor_0 => stream_0
+  //   predictor_1 => stream_1
+  //   predictor_2 => stream_2
+  //   predictor_3 => stream_3
+  //   predictor_4 => stream_0
+  //   ...
+  int predictor_num() const { return predictor_num_; }
+  void SetPredictorNum(int num) { predictor_num_ = num; }
+
  private:
   void CreateStream();
   void GetInfo();
@@ -307,6 +321,8 @@ class Device<TARGET(kCUDA)> {
   int runtime_version_;
   std::vector<cudaStream_t> exec_stream_;
   std::vector<cudaStream_t> io_stream_;
+
+  int predictor_num_{-1};
 };
 
 template class Env<TARGET(kCUDA)>;

@@ -46,10 +46,10 @@ struct LITE_API Tensor {
   T* mutable_data(TargetType type = TargetType::kHost) const;
 
   template <typename T, TargetType type = TargetType::kHost>
-  void CopyFromCpu(const T* data);
+  void CopyFromCpu(const T* data, int stream_id = -1);
 
   template <typename T>
-  void CopyToCpu(T* data) const;
+  void CopyToCpu(T* data, int stream_id = -1) const;
   /// Shape of the tensor.
   shape_t shape() const;
   TargetType target() const;
@@ -108,6 +108,8 @@ class LITE_API PaddlePredictor {
 
   virtual ~PaddlePredictor() = default;
 
+  virtual int GetStreamId() { return 0; }
+
  protected:
   int threads_{1};
   lite_api::PowerMode mode_{lite_api::LITE_POWER_NO_BIND};
@@ -153,6 +155,7 @@ class LITE_API CxxConfig : public ConfigBase {
 #endif
 #ifdef LITE_WITH_CUDA
   bool multi_stream_{false};
+  bool thread_stream_{false};
 #endif
 #ifdef LITE_WITH_MLU
   lite_api::MLUCoreVersion mlu_core_version_{lite_api::MLUCoreVersion::MLU_270};
@@ -199,8 +202,12 @@ class LITE_API CxxConfig : public ConfigBase {
   }
 #endif
 #ifdef LITE_WITH_CUDA
+  //
   void set_multi_stream(bool multi_stream) { multi_stream_ = multi_stream; }
   bool multi_stream() const { return multi_stream_; }
+  //
+  void set_thread_stream(bool thread_stream) { thread_stream_ = thread_stream; }
+  bool thread_stream() const { return thread_stream_; }
 #endif
 
 #ifdef LITE_WITH_MLU

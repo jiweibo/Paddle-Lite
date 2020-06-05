@@ -84,7 +84,7 @@ int64_t *Tensor::mutable_data(TargetType type) const {
 }
 
 template <typename T, TargetType type>
-void Tensor::CopyFromCpu(const T *src_data) {
+void Tensor::CopyFromCpu(const T *src_data, int stream_id) {
   T *data = tensor(raw_tensor_)->mutable_data<T>(type);
   int64_t num = tensor(raw_tensor_)->numel();
   CHECK(num > 0) << "You should call Resize interface first";
@@ -93,8 +93,20 @@ void Tensor::CopyFromCpu(const T *src_data) {
         data, src_data, num * sizeof(T), lite::IoDirection::HtoH);
   } else if (type == TargetType::kCUDA) {
 #ifdef LITE_WITH_CUDA
-    lite::TargetWrapperCuda::MemcpySync(
-        data, src_data, num * sizeof(T), lite::IoDirection::HtoD);
+    if (stream_id == -1) {
+      lite::TargetWrapperCuda::MemcpySync(
+          data, src_data, num * sizeof(T), lite::IoDirection::HtoD);
+    } else {
+      size_t dev_id = lite::TargetWrapperCuda::GetCurDevice();
+      lite::Env<lite_api::TargetType::kCUDA>::Devs &devs =
+          lite::Env<TargetType::kCUDA>::Global();
+      lite::TargetWrapperCuda::MemcpyAsync(
+          data,
+          src_data,
+          num * sizeof(T),
+          lite::IoDirection::HtoD,
+          devs[dev_id].exec_streams()[stream_id]);
+    }
 #else
     LOG(FATAL) << "Please compile the lib with CUDA.";
 #endif
@@ -103,7 +115,7 @@ void Tensor::CopyFromCpu(const T *src_data) {
   }
 }
 template <typename T>
-void Tensor::CopyToCpu(T *data) const {
+void Tensor::CopyToCpu(T *data, int stream_id) const {
   const T *src_data = tensor(raw_tensor_)->data<T>();
   int64_t num = tensor(raw_tensor_)->numel();
   CHECK(num > 0) << "You should call Resize interface first";
@@ -113,8 +125,22 @@ void Tensor::CopyToCpu(T *data) const {
         data, src_data, num * sizeof(T), lite::IoDirection::HtoH);
   } else if (type == TargetType::kCUDA) {
 #ifdef LITE_WITH_CUDA
-    lite::TargetWrapperCuda::MemcpySync(
-        data, src_data, num * sizeof(T), lite::IoDirection::DtoH);
+    if (stream_id == -1) {
+      lite::TargetWrapperCuda::MemcpySync(
+          data, src_data, num * sizeof(T), lite::IoDirection::DtoH);
+    } else {
+      size_t dev_id = lite::TargetWrapperCuda::GetCurDevice();
+      lite::Env<lite_api::TargetType::kCUDA>::Devs &devs =
+          lite::Env<TargetType::kCUDA>::Global();
+      lite::TargetWrapperCuda::MemcpyAsync(
+          data,
+          src_data,
+          num * sizeof(T),
+          lite::IoDirection::DtoH,
+          devs[dev_id].exec_streams()[stream_id]);
+      lite::TargetWrapperCuda::StreamSync(
+          devs[dev_id].exec_streams()[stream_id]);
+    }
 #else
     LOG(FATAL) << "Please compile the lib with CUDA.";
 #endif
@@ -123,25 +149,31 @@ void Tensor::CopyToCpu(T *data) const {
   }
 }
 
-template void Tensor::CopyFromCpu<int, TargetType::kHost>(const int *);
-template void Tensor::CopyFromCpu<float, TargetType::kHost>(const float *);
-template void Tensor::CopyFromCpu<int8_t, TargetType::kHost>(const int8_t *);
-template void Tensor::CopyFromCpu<uint8_t, TargetType::kHost>(const uint8_t *);
+template void Tensor::CopyFromCpu<int, TargetType::kHost>(const int *, int);
+template void Tensor::CopyFromCpu<float, TargetType::kHost>(const float *, int);
+template void Tensor::CopyFromCpu<int8_t, TargetType::kHost>(const int8_t *,
+                                                             int);
+template void Tensor::CopyFromCpu<uint8_t, TargetType::kHost>(const uint8_t *,
+                                                              int);
 
-template void Tensor::CopyFromCpu<int, TargetType::kARM>(const int *);
-template void Tensor::CopyFromCpu<float, TargetType::kARM>(const float *);
-template void Tensor::CopyFromCpu<int8_t, TargetType::kARM>(const int8_t *);
-template void Tensor::CopyFromCpu<uint8_t, TargetType::kARM>(const uint8_t *);
+template void Tensor::CopyFromCpu<int, TargetType::kARM>(const int *, int);
+template void Tensor::CopyFromCpu<float, TargetType::kARM>(const float *, int);
+template void Tensor::CopyFromCpu<int8_t, TargetType::kARM>(const int8_t *,
+                                                            int);
+template void Tensor::CopyFromCpu<uint8_t, TargetType::kARM>(const uint8_t *,
+                                                             int);
 
-template void Tensor::CopyFromCpu<int, TargetType::kCUDA>(const int *);
-template void Tensor::CopyFromCpu<int64_t, TargetType::kCUDA>(const int64_t *);
-template void Tensor::CopyFromCpu<float, TargetType::kCUDA>(const float *);
-template void Tensor::CopyFromCpu<int8_t, TargetType::kCUDA>(const int8_t *);
+template void Tensor::CopyFromCpu<int, TargetType::kCUDA>(const int *, int);
+template void Tensor::CopyFromCpu<int64_t, TargetType::kCUDA>(const int64_t *,
+                                                              int);
+template void Tensor::CopyFromCpu<float, TargetType::kCUDA>(const float *, int);
+template void Tensor::CopyFromCpu<int8_t, TargetType::kCUDA>(const int8_t *,
+                                                             int);
 
-template void Tensor::CopyToCpu(float *) const;
-template void Tensor::CopyToCpu(int *) const;
-template void Tensor::CopyToCpu(int8_t *) const;
-template void Tensor::CopyToCpu(uint8_t *) const;
+template void Tensor::CopyToCpu(float *, int) const;
+template void Tensor::CopyToCpu(int *, int) const;
+template void Tensor::CopyToCpu(int8_t *, int) const;
+template void Tensor::CopyToCpu(uint8_t *, int) const;
 
 shape_t Tensor::shape() const {
   return ctensor(raw_tensor_)->dims().Vectorize();

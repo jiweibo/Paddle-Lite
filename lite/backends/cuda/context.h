@@ -65,8 +65,17 @@ class Context<TargetType::kCUDA> {
       exec_stream_id = 0;
     }
 
-    exec_stream_ = devs[dev_id].exec_streams()[exec_stream_id];
-    io_stream_ = devs[dev_id].io_streams()[io_stream_id];
+    // Each predictor corresponds to a stream id. A common scenario is that each
+    // thread predictor corresponds to a stream id.
+    exec_stream_ =
+        devs[dev_id]
+            .exec_streams()[exec_stream_id +
+                            devs[dev_id].predictor_num() % lite::kMaxStream];
+    io_stream_ =
+        devs[dev_id]
+            .io_streams()[io_stream_id +
+                          devs[dev_id].predictor_num() % lite::kMaxStream];
+    // exec_stream_ = devs[dev_id].exec_streams()[exec_stream_id];
 
     exec_stream_id_ = exec_stream_id;
     io_stream_id_ = io_stream_id;
@@ -129,13 +138,15 @@ class Context<TargetType::kCUDA> {
   void SetNeedSync(bool sync) { need_sync_ = sync; }
   bool need_sync() const { return need_sync_; }
 
-  void Sync() {
+  void SyncStream() {
     CHECK_EQ(sync_streams_.size(), sync_events_.size());
     for (size_t i = 0; i < sync_events_.size(); ++i) {
       TargetWrapperCuda::RecordEvent(sync_events_[i], sync_streams_[i]);
       TargetWrapperCuda::StreamSync(exec_stream_, sync_events_[i]);
     }
   }
+
+  void Sync() { TargetWrapperCuda::StreamSync(exec_stream_); }
 
   std::string name() const { return "CUDAContext"; }
 
