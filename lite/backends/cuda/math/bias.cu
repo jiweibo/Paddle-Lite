@@ -38,14 +38,14 @@ __global__ void bias_kernel<half>(int n,
                                   const half* bias,
                                   half* dout) {
   int index = blockIdx.x * blockDim.x + threadIdx.x;
-#if __CUDA_ARCH__ >= 530
-  dout[index] = __hadd(dout[index], bias[index % output_size]);
-#else
   if (index < n) {
+#if __CUDA_ARCH__ >= 530
+    dout[index] = __hadd(dout[index], bias[index % output_size]);
+#else
     dout[index] = __float2half(__half2float(dout[index]) +
                                __half2float(bias[index % output_size]));
-  }
 #endif
+  }
 }
 
 template <typename T>

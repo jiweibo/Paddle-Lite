@@ -130,7 +130,8 @@ __global__ void seq_pool_sqrt_kernel(half* dst,
     for (int i = 0; i < in_slice_num; ++i) {
       sum += src_in[i * slice_size];
     }
-    dst[out_batch_id * slice_size + out_id] = __hmul(sum, hrsqrt(in_slice_num));
+    dst[out_batch_id * slice_size + out_id] =
+        __hmul(sum, hrsqrt(__int2half_rn(in_slice_num)));
   }
 }
 
