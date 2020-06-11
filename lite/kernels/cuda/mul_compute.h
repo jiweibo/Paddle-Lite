@@ -15,9 +15,7 @@
 #pragma once
 #include <memory>
 #include "lite/backends/cuda/math/gemm.h"
-#include "lite/core/context.h"
 #include "lite/core/kernel.h"
-#include "lite/core/types.h"
 #include "lite/operators/op_params.h"
 
 namespace paddle {
