@@ -23,6 +23,21 @@
 #include "lite/api/test_helper.h"
 #include "lite/utils/float16.h"
 
+DEFINE_int32(batch_size, 1, "batch_size");
+DEFINE_int32(in_channels, 32, "in_channels");
+DEFINE_int32(out_channels, 128, "out_channels");
+DEFINE_int32(height, 64, "height");
+DEFINE_int32(width, 64, "width");
+DEFINE_int32(kernel_h, 5, "kernel_h");
+DEFINE_int32(kernel_w, 5, "kernel_w");
+DEFINE_int32(stride_h, 2, "stride_h");
+DEFINE_int32(stride_w, 2, "stride_w");
+DEFINE_int32(pad_h, 1, "pad_h");
+DEFINE_int32(pad_w, 1, "pad_w");
+DEFINE_int32(dilation_h, 2, "dilation_h");
+DEFINE_int32(dilation_w, 2, "dilation_w");
+DEFINE_int32(groups, 1, "groups");
+
 namespace paddle {
 namespace lite {
 namespace kernels {
@@ -37,20 +52,20 @@ static float random_num(float low, float high) {
 class Conv2dTest : public ::testing::Test {
  protected:
   Conv2dTest()
-      : batch(16),
-        in_channels(32),
-        out_channels(128),
-        height(64),
-        width(64),
-        kernel_h(5),
-        kernel_w(5),
-        stride_h(2),
-        stride_w(2),
-        pad_h(1),
-        pad_w(1),
-        dilation_h(2),
-        dilation_w(2),
-        groups(1),
+      : batch(FLAGS_batch_size),
+        in_channels(FLAGS_in_channels),
+        out_channels(FLAGS_out_channels),
+        height(FLAGS_height),
+        width(FLAGS_width),
+        kernel_h(FLAGS_kernel_h),
+        kernel_w(FLAGS_kernel_w),
+        stride_h(FLAGS_stride_h),
+        stride_w(FLAGS_stride_w),
+        pad_h(FLAGS_pad_h),
+        pad_w(FLAGS_pad_w),
+        dilation_h(FLAGS_dilation_h),
+        dilation_w(FLAGS_dilation_w),
+        groups(FLAGS_groups),
         x_shape({batch, in_channels, height, width}),
         w_shape({out_channels, in_channels, kernel_h, kernel_w}),
         b_shape({out_channels}) {
@@ -325,11 +340,9 @@ TEST(conv_compute, int8_int8_out) {
   auto* y_cpu_data = x_cpu.mutable_data<int8_t>();
   auto* bias_cpu_data = bias_cpu.mutable_data<float>();
 
-  std::cout << "input" << std::endl;
   for (int i = 0; i < x_cpu.numel(); i++) {
     x_cpu_data[i] = static_cast<int8_t>(random_num(-36, 36));
   }
-  std::cout << "filter" << std::endl;
   for (int i = 0; i < filter_cpu.numel(); i++) {
     filter_cpu_data[i] = static_cast<int8_t>(random_num(-10, 10));
   }
