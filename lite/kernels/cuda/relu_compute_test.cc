@@ -84,7 +84,7 @@ class ReLUTest : public ::testing::Test {
   void cpu_base(const lite::Tensor* X, lite::Tensor* Out) {
     const float* data_in = X->data<float>();
     float* data_out = Out->mutable_data<float>();
-    for (size_t i = 0; i < X->numel(); ++i) {
+    for (int64_t i = 0; i < X->numel(); ++i) {
       data_out[i] = std::max(data_in[i], 0.f);
     }
   }
