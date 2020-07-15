@@ -145,6 +145,7 @@ class Optimizer {
 
            "variable_place_inference_pass",  //
            "argument_type_display_pass",
+           "multi_stream_analysis_pass",
 
            "runtime_context_assign_pass",
            "argument_type_display_pass",
