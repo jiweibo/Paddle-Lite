@@ -20,6 +20,10 @@
 #include "lite/api/test_helper.h"
 #include "lite/utils/float16.h"
 
+DEFINE_int32(m, 16, "m");
+DEFINE_int32(n, 16, "n");
+DEFINE_int32(k, 16, "k");
+
 namespace paddle {
 namespace lite {
 namespace kernels {
@@ -28,7 +32,8 @@ namespace cuda {
 class MulTest : public ::testing::Test {
  protected:
   MulTest()
-      : m(2), k(3), n(4), x_shape({m, k}), y_shape({k, n}), out_shape({m, n}) {
+      : m(FLAGS_m), k(FLAGS_k), n(FLAGS_n), 
+        x_shape({m, k}), y_shape({k, n}), out_shape({m, n}) {
     X_gpu.Resize(lite::DDim(x_shape));
     X_ref.Resize(lite::DDim(x_shape));
 
@@ -148,7 +153,9 @@ TEST_F(MulTest, TestFP32) {
                           IoDirection::DtoH);
 
   for (int i = 0; i < Out_gpu.numel(); ++i) {
-    EXPECT_NEAR(Out_cpu.data<float>()[i], Out_ref.data<float>()[i], 1e-5);
+    float res = Out_cpu.data<float>()[i];
+    float ref = Out_ref.data<float>()[i];
+    EXPECT_NEAR(fabs(res - ref) / (ref + 1e-5), 0., 1e-4);
   }
 }
 
