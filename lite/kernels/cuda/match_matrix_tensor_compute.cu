@@ -19,60 +19,6 @@ namespace paddle {
 namespace lite {
 namespace kernels {
 namespace cuda {
-using Tensor = lite::Tensor;
-
-template <typename dtype>
-void gpu_transpose(cublasHandle_t handle,
-                   const dtype* src,
-                   int M,
-                   int N,
-                   dtype* dst,
-                   cudaStream_t stream);
-
-template <>
-void gpu_transpose<float>(cublasHandle_t handle,
-                          const float* src,
-                          int M,
-                          int N,
-                          float* dst,
-                          cudaStream_t stream) {
-  float alpha = 1.0;
-  float beta = 0.0;
-  CUBLAS_CHECK(cublasSgeam(handle,
-                           CUBLAS_OP_T,
-                           CUBLAS_OP_N,
-                           M,
-                           N,
-                           &alpha,
-                           src,
-                           N,
-                           &beta,
-                           dst,
-                           M,
-                           dst,
-                           M));
-}
-
-__global__ void gpu_trans_half_2d(const half* src, half* dst, int M, int N) {
-  int index = blockIdx.x * blockDim.x + threadIdx.x;
-  int m = index / N;
-  int n = index % N;
-  if (index < M * N) {
-    dst[n * M + m] = src[index];
-  }
-}
-
-template <>
-void gpu_transpose<half>(cublasHandle_t handle,
-                         const half* src,
-                         int M,
-                         int N,
-                         half* dst,
-                         cudaStream_t stream) {
-  const int num = M * N;
-  gpu_trans_half_2d<<<CUDA_GET_BLOCKS(num), CUDA_NUM_THREADS, 0, stream>>>(
-      src, dst, M, N);
-}
 
 template <typename dtype>
 __global__ void padding_out(const dtype* src,
@@ -164,15 +110,11 @@ void MatchMatrixTensorCompute<T, PType>::Run() {
   gemm_impl_->init(true, true, dim_t * dim_in, len_l, dim_in, &context);
   gemm_impl_->run(
       1.0f, 0.0f, weight_data, input_l, input_l_transform, &context);
-  for (int i = 0; i < dim_t; ++i) {
-    int offset = i * dim_in * len_l;
-    gpu_transpose<T>(gemm_impl_->get_handle(),
-                     input_l_transform + offset,
-                     dim_in,
-                     len_l,
-                     input_l_transform_reorganize + offset,
-                     stream);
-  }
+  trans_.transpose(input_l_transform_reorganize,
+                   input_l_transform,
+                   _input_l_transform.dims().Vectorize(),
+                   {0, 1, 3, 2},
+                   &stream);
   gemm_impl_->init(false, true, len_r, dim_t * len_l, dim_in, &context);
   gemm_impl_->run(
       1.0f, 0.0f, input_r, input_l_transform_reorganize, output_tmp, &context);
