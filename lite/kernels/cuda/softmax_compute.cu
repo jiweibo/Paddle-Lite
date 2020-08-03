@@ -174,12 +174,17 @@ __global__ void softmax_divid_output_kernel(int total_size,
 
 template <typename Dtype, PrecisionType Ptype>
 void SoftmaxCompute<Dtype, Ptype>::PrepareForRun() {
+  auto& param = this->template Param<param_t>();
+  auto& ctx = this->ctx_->template As<CUDAContext>();
   int device_id;
   cudaGetDevice(&device_id);
   cudaDeviceProp deviceProp;
   cudaGetDeviceProperties(&deviceProp, device_id);
   sharedmem_size_ = deviceProp.sharedMemPerBlock;
   max_dimsize_ = sharedmem_size_ / sizeof(float) / CUDA_NUM_THREADS;
+  if (param.use_cudnn) {
+    cudnn_softmax_.Init(param, &ctx);
+  }
 }
 
 template <typename Dtype, PrecisionType Ptype>
@@ -187,59 +192,69 @@ void SoftmaxCompute<Dtype, Ptype>::Run() {
   auto& param = this->template Param<param_t>();
   auto& ctx = this->ctx_->template As<CUDAContext>();
   auto stream = ctx.exec_stream();
-
-  auto x_dims = param.x->dims();
-  auto x_rank = x_dims.size();
-  int axis = param.axis;
-  if (axis < 0) {
-    axis += x_rank;
-  }
-  int outer_num = x_dims.Slice(0, axis).production();
-  int inner_num = x_dims.Slice(axis + 1, x_rank).production();
-  int total_threads = inner_num * outer_num;
-  axis_size_ = x_dims[axis];
-
-  const int threads = CUDA_NUM_THREADS;
-  const int blocks = (total_threads + threads - 1) / threads;
-  auto input_data = param.x->template data<Dtype>();
-  auto output_data = param.output->template mutable_data<Dtype>(TARGET(kCUDA));
-  if (axis_size_ <= max_dimsize_) {
-    int use_sharemem_size = axis_size_ * threads * sizeof(Dtype);
-    sharemem_softmax_kernel<
-        Dtype><<<blocks, threads, use_sharemem_size, stream>>>(total_threads,
-                                                               input_data,
-                                                               output_data,
-                                                               inner_num,
-                                                               outer_num,
-                                                               axis_size_);
+  if (param.use_cudnn) {
+    cudnn_softmax_.Create(param, &ctx);
+    cudnn_softmax_.Run(param);
   } else {
-    //! re_alloc device memory
-    tmax_data_.Resize({1, 1, 1, outer_num * inner_num});
-    tsum_data_.Resize({1, 1, 1, outer_num * inner_num});
-    auto max_data = tmax_data_.mutable_data<Dtype>(TARGET(kCUDA));
-    auto sum_data = tsum_data_.mutable_data<Dtype>(TARGET(kCUDA));
-    //! firstly, get maximum data
-    float min_data = std::numeric_limits<float>::lowest();
-    softmax_max_kernel<Dtype><<<blocks, threads, 0, stream>>>(total_threads,
-                                                              input_data,
-                                                              max_data,
-                                                              min_data,
-                                                              inner_num,
-                                                              outer_num,
-                                                              axis_size_);
-    //! then, compute exp and sum data
-    softmax_sub_exp_sum_kernel<Dtype><<<blocks, threads, 0, stream>>>(
-        total_threads,
-        input_data,
-        output_data,
-        max_data,
-        sum_data,
-        inner_num,
-        outer_num,
-        axis_size_);
-    //! last, compute divided output
-    softmax_divid_output_kernel<Dtype><<<blocks, threads, 0, stream>>>(
-        total_threads, output_data, sum_data, inner_num, outer_num, axis_size_);
+    auto x_dims = param.x->dims();
+    auto x_rank = x_dims.size();
+    int axis = param.axis;
+    if (axis < 0) {
+      axis += x_rank;
+    }
+    int outer_num = x_dims.Slice(0, axis).production();
+    int inner_num = x_dims.Slice(axis + 1, x_rank).production();
+    int total_threads = inner_num * outer_num;
+    axis_size_ = x_dims[axis];
+
+    const int threads = CUDA_NUM_THREADS;
+    const int blocks = (total_threads + threads - 1) / threads;
+    auto input_data = param.x->template data<Dtype>();
+    auto output_data =
+        param.output->template mutable_data<Dtype>(TARGET(kCUDA));
+    if (axis_size_ <= max_dimsize_) {
+      int use_sharemem_size = axis_size_ * threads * sizeof(Dtype);
+      sharemem_softmax_kernel<
+          Dtype><<<blocks, threads, use_sharemem_size, stream>>>(total_threads,
+                                                                 input_data,
+                                                                 output_data,
+                                                                 inner_num,
+                                                                 outer_num,
+                                                                 axis_size_);
+    } else {
+      //! re_alloc device memory
+      tmax_data_.Resize({1, 1, 1, outer_num * inner_num});
+      tsum_data_.Resize({1, 1, 1, outer_num * inner_num});
+      auto max_data = tmax_data_.mutable_data<Dtype>(TARGET(kCUDA));
+      auto sum_data = tsum_data_.mutable_data<Dtype>(TARGET(kCUDA));
+      //! firstly, get maximum data
+      float min_data = std::numeric_limits<float>::lowest();
+      softmax_max_kernel<Dtype><<<blocks, threads, 0, stream>>>(total_threads,
+                                                                input_data,
+                                                                max_data,
+                                                                min_data,
+                                                                inner_num,
+                                                                outer_num,
+                                                                axis_size_);
+      //! then, compute exp and sum data
+      softmax_sub_exp_sum_kernel<Dtype><<<blocks, threads, 0, stream>>>(
+          total_threads,
+          input_data,
+          output_data,
+          max_data,
+          sum_data,
+          inner_num,
+          outer_num,
+          axis_size_);
+      //! last, compute divided output
+      softmax_divid_output_kernel<Dtype><<<blocks, threads, 0, stream>>>(
+          total_threads,
+          output_data,
+          sum_data,
+          inner_num,
+          outer_num,
+          axis_size_);
+    }
   }
   cudaError_t error = cudaGetLastError();
   if (error != cudaSuccess) LOG(ERROR) << cudaGetErrorString(error);

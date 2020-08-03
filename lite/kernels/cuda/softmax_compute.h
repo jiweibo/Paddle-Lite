@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #pragma once
+#include "lite/backends/cuda/math/cudnn_softmax.h"
 #include "lite/core/kernel.h"
 
 namespace paddle {
@@ -31,6 +32,7 @@ class SoftmaxCompute
   virtual ~SoftmaxCompute() = default;
 
  private:
+  lite::cuda::math::CudnnSoftmax<Dtype, Ptype> cudnn_softmax_;
   lite::Tensor tmax_data_;
   lite::Tensor tsum_data_;
   size_t sharedmem_size_;
