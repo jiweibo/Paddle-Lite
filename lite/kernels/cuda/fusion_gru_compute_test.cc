@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "lite/kernels/cuda/gru_compute.h"
+#include "lite/kernels/cuda/fusion_gru_compute.h"
 
 #include <gtest/gtest.h>
 
@@ -29,16 +29,16 @@ namespace lite {
 namespace kernels {
 namespace cuda {
 
-class GRUTest : public ::testing::Test {
+class FusionGRUTest : public ::testing::Test {
  protected:
-  GRUTest()
+  FusionGRUTest()
       : batch_(12),
         frame_size_(128),
         activation_("tanh"),
         gate_activation_("sigmoid"),
         is_reverse_(false),
-        origin_mode_(false),
-        x_shape_({batch_, frame_size_ * 3}),
+        origin_mode_(true),
+        x_shape_({batch_, frame_size_}),
         w_shape_({frame_size_, frame_size_ * 3}),
         out_shape_({batch_, frame_size_}),
         lod_({{0, 4, 9, 12}}) {
@@ -49,8 +49,12 @@ class GRUTest : public ::testing::Test {
     w_ref_.Resize(lite::DDim(w_shape_));
     w_gpu_.Resize(lite::DDim(w_shape_));
 
+    w_i2h_ref_.Resize(lite::DDim(w_shape_));
+    w_i2h_gpu_.Resize(w_i2h_ref_.dims());
+
     auto x_ref_data = x_ref_.mutable_data<float>();
     auto w_ref_data = w_ref_.mutable_data<float>();
+    auto w_i2h_ref_data = w_i2h_ref_.mutable_data<float>();
 
     for (int64_t i = 0; i < x_ref_.numel(); i++) {
       x_ref_data[i] = static_cast<float>(i % 10 * 0.2);
@@ -58,13 +62,13 @@ class GRUTest : public ::testing::Test {
     for (int64_t i = 0; i < w_ref_.numel(); i++) {
       w_ref_data[i] = static_cast<float>(i % 10 * 0.2);
     }
+    for (int64_t i = 0; i < w_i2h_ref_.numel(); ++i) {
+      w_i2h_ref_data[i] = static_cast<float>(i % 10 * 0.1);
+    }
 
     out_ref_.Resize(lite::DDim(out_shape_));
     out_cpu_.Resize(out_ref_.dims());
     out_gpu_.Resize(out_ref_.dims());
-    batch_gate_gpu_.Resize(lite::DDim(x_shape_));
-    batch_hidden_gpu_.Resize(lite::DDim(out_shape_));
-    batch_reset_hidden_gpu_.Resize(lite::DDim(out_shape_));
     RunBaseLine();
 
     InitParamAndContext();
@@ -82,9 +86,7 @@ class GRUTest : public ::testing::Test {
     param_.is_reverse = is_reverse_;
     param_.origin_mode = origin_mode_;
     param_.hidden = &out_gpu_;
-    param_.batch_gate = &batch_gate_gpu_;
-    param_.batch_reset_hidden_prev = &batch_reset_hidden_gpu_;
-    param_.batch_hidden = &batch_hidden_gpu_;
+    param_.weight_i2h = &w_i2h_gpu_;
   }
 
   void InitFloatInput() {
@@ -93,6 +95,8 @@ class GRUTest : public ::testing::Test {
     x_gpu_.set_lod(x_ref_.lod());
     w_gpu_.Assign<float, lite::DDim, TARGET(kCUDA)>(w_ref_.data<float>(),
                                                     w_gpu_.dims());
+    w_i2h_gpu_.Assign<float, lite::DDim, TARGET(kCUDA)>(
+        w_i2h_ref_.data<float>(), w_i2h_gpu_.dims());
   }
 
   void InitHalfInput() {
@@ -109,6 +113,13 @@ class GRUTest : public ::testing::Test {
       w_half_data[i] = half(lite::float16(w_ref_.data<float>()[i]));
     }
     w_gpu_.Assign<half, lite::DDim, TARGET(kCUDA)>(w_half_data, w_gpu_.dims());
+    w_i2h_half_.Resize(w_i2h_ref_.dims());
+    auto w_i2h_half_data = w_i2h_half_.mutable_data<half>();
+    for (int64_t i = 0; i < w_i2h_half_.numel(); i++) {
+      w_i2h_half_data[i] = half(lite::float16(w_i2h_ref_.data<float>()[i]));
+    }
+    w_i2h_gpu_.Assign<half, lite::DDim, TARGET(kCUDA)>(w_i2h_half_data,
+                                                       w_i2h_gpu_.dims());
   }
 
   void RunBaseLine() {}
@@ -118,12 +129,9 @@ class GRUTest : public ::testing::Test {
   bool is_reverse_, origin_mode_;
   std::vector<int64_t> x_shape_, w_shape_, out_shape_;
   LoD lod_;
-  lite::Tensor x_ref_, w_ref_, out_ref_;
-  lite::Tensor x_gpu_, w_gpu_;
-  lite::Tensor x_half_, w_half_;
-  lite::Tensor batch_gate_gpu_;
-  lite::Tensor batch_hidden_gpu_;
-  lite::Tensor batch_reset_hidden_gpu_;
+  lite::Tensor x_ref_, w_ref_, w_i2h_ref_, out_ref_;
+  lite::Tensor x_gpu_, w_gpu_, w_i2h_gpu_;
+  lite::Tensor x_half_, w_half_, w_i2h_half_;
   lite::Tensor out_cpu_, out_gpu_;
 
   operators::GRUParam param_;
@@ -131,9 +139,9 @@ class GRUTest : public ::testing::Test {
   cudaStream_t stream_;
 };
 
-TEST_F(GRUTest, TestFP32) {
+TEST_F(FusionGRUTest, TestFP32) {
   InitFloatInput();
-  GRUCompute<float, PRECISION(kFloat)> kernel;
+  FusionGRUCompute<float, PRECISION(kFloat)> kernel;
   kernel.SetParam(param_);
   kernel.SetContext(std::move(ctx_));
 
@@ -154,9 +162,9 @@ TEST_F(GRUTest, TestFP32) {
             << duration / FLAGS_repeats << " ms in average.";
 }
 
-// TEST_F(GRUTest, TestFP16) {
+// TEST_F(FusionGRUTest, TestFP16) {
 //   InitHalfInput();
-//   GRUCompute<half, PRECISION(kFP16)> kernel;
+//   FusionGRUCompute<half, PRECISION(kFP16)> kernel;
 //   kernel.SetParam(param_);
 //   kernel.SetContext(std::move(ctx_));
 

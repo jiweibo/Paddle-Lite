@@ -848,7 +848,8 @@ struct DensityPriorBoxParam : public PriorBoxParam {
 struct GRUParam : ParamBase {
   const lite::Tensor* input{nullptr};
   const lite::Tensor* h0{nullptr};
-  const lite::Tensor* weight{nullptr};
+  const lite::Tensor* weight{nullptr};  // weight_h2h
+  const lite::Tensor* weight_i2h{nullptr};
   const lite::Tensor* bias{nullptr};
   lite::Tensor* batch_gate{nullptr};
   lite::Tensor* batch_reset_hidden_prev{nullptr};

@@ -10,6 +10,7 @@ nv_library(cuda_type_trans SRCS type_trans.cu DEPS ${cuda_static_deps})
 nv_library(cuda_transpose SRCS transpose.cu DEPS ${cuda_static_deps})
 nv_library(cudnn_helper SRCS cudnn_helper.cc DEPS ${cuda_static_deps})
 nv_library(cudnn_conv SRCS cudnn_conv.cc DEPS cuda_activation cuda_scale cuda_type_trans cudnn_helper ${cuda_static_deps})
+nv_library(cudnn_gru SRCS cudnn_gru.cc DEPS cudnn_helper cuda_transpose ${cuda_static_deps})
 nv_library(cudnn_softmax SRCS cudnn_softmax.cc DEPS cudnn_helper ${cuda_static_deps} tensor)
 nv_library(cuda_elementwise SRCS elementwise.cu DEPS ${cuda_static_deps})
 nv_library(cudnn_pool SRCS cudnn_pool.cc DEPS ${cuda_static_deps})
@@ -25,6 +26,7 @@ nv_library(cuda_sequence_helper SRCS sequence_helper.cu DEPS ${cuda_static_deps}
 set (
  math_cuda
  cudnn_conv
+ cudnn_gru
  cudnn_softmax
  cuda_activation
  cuda_scale
