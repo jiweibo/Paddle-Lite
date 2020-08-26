@@ -6,7 +6,7 @@
 	url = https://gitee.com/jiweibo/googletest.git
 [submodule "third-party/protobuf-mobile"]
 	path = third-party/protobuf-mobile
-	url = https://github.com/tensor-tang/protobuf.git
+	url = https://gitee.com/jiweibo/protobuf-mobile.git
 [submodule "third-party/protobuf-host"]
 	path = third-party/protobuf-host
 	url = https://gitee.com/jiweibo/protobuf.git
