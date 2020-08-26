@@ -28,7 +28,7 @@ ENDIF(WIN32)
 
 INCLUDE_DIRECTORIES(${GLOG_INCLUDE_DIR})
 
-SET(GLOG_REPOSITORY "https://github.com/google/glog.git")
+SET(GLOG_REPOSITORY "https://gitee.com/jiweibo/glog.git")
 SET(GLOG_TAG "v0.3.5")
 
 SET(OPTIONAL_ARGS "-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
@@ -48,6 +48,7 @@ ExternalProject_Add(
     GIT_TAG         ${GLOG_TAG}
     PREFIX          ${GLOG_SOURCES_DIR}
     UPDATE_COMMAND  ""
+    BUILD_ALWAYS    1
     CMAKE_ARGS      ${CROSS_COMPILE_CMAKE_ARGS}
                     ${OPTIONAL_ARGS}
                     -DCMAKE_INSTALL_PREFIX=${GLOG_INSTALL_DIR}
